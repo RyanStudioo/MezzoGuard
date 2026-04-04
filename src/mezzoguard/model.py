@@ -50,9 +50,3 @@ class PromptGuardModel:
             futures = [executor.submit(self._predict_tokenized_text, chunk) for chunk in chunks]
             results = [future.result() for future in futures]
         return ResultMaker.from_prediction(results)
-
-
-
-
-
-
