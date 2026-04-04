@@ -42,7 +42,7 @@ class PromptGuardModel:
         tokens = self.pipeline.tokenizer.tokenize(text)
         return len(tokens)
 
-    def predict(self, text: str, max_seq_length: int=64, overlap: int=16) -> Result:
+    def scan(self, text: str, max_seq_length: int=64, overlap: int=16) -> Result:
         self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         results = []
