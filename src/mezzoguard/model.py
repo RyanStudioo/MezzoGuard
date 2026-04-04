@@ -5,6 +5,7 @@ from typing import Optional, Callable
 
 from transformers import pipeline
 
+from mezzoguard.errors import UnsafePromptError
 from src.mezzoguard.resultmaker import ResultMaker, Result
 
 
@@ -94,6 +95,29 @@ class PromptGuardModel:
                 if value is not None:
                     redacted = self.redact(value, max_seq_length, overlap, replace, confidence)
                     bound.arguments[param] = redacted
+
+                return func(*bound.args, **bound.kwargs)
+
+            return wrapper
+
+        return decorator
+
+    def scan_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16, confidence: float=0.5) -> Callable:
+        self.load_model()
+
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                sig = inspect.signature(func)
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+
+                value = bound.arguments.get(param)
+
+                if value is not None:
+                    result = self.scan(value, max_seq_length, overlap)
+                    if result.label == "unsafe" and result.confidence >= confidence:
+                        raise UnsafePromptError(result.confidence)
 
                 return func(*bound.args, **bound.kwargs)
 

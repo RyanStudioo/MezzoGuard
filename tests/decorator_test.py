@@ -16,7 +16,7 @@ The mission was intended to test the Saturn V launch vehicle's ability to send t
 
 model = PromptGuardModel(Models.MEZZO_V2_LARGE)
 
-@model.redact_before_exec(param="text", confidence=0.5)
+@model.scan_before_exec(param="text", confidence=0.5)
 def something(text: str) -> str:
     print(text)
     return text
