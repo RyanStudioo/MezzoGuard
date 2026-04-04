@@ -1,5 +1,7 @@
+import functools
+import inspect
 from concurrent.futures.thread import ThreadPoolExecutor
-from typing import Optional
+from typing import Optional, Callable
 
 from transformers import pipeline
 
@@ -66,7 +68,7 @@ class PromptGuardModel:
             previous_unsafe = False
             for chunk, future in zip(chunks, futures):
                 result = future.result()
-                if result["label"] == "unsafe" and result["confidence"] >= confidence:
+                if result["label"] == "unsafe" and result["score"] >= confidence:
                     if previous_unsafe:
                         continue
                     redacted_chunks.append(replace)
@@ -75,5 +77,28 @@ class PromptGuardModel:
                     redacted_chunks.append(self._reform_tokenized_chunk(chunk))
                     previous_unsafe = False
         return " ".join(redacted_chunks)
+
+    def redact_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
+                           confidence: float = 0.5) -> Callable:
+        self.load_model()
+
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                sig = inspect.signature(func)
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+
+                value = bound.arguments.get(param)
+
+                if value is not None:
+                    redacted = self.redact(value, max_seq_length, overlap, replace, confidence)
+                    bound.arguments[param] = redacted
+
+                return func(*bound.args, **bound.kwargs)
+
+            return wrapper
+
+        return decorator
 
 
