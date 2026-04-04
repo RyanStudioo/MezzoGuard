@@ -16,10 +16,10 @@ The mission was intended to test the Saturn V launch vehicle's ability to send t
 
 model = PromptGuardModel(Models.MEZZO_V2_LARGE)
 
-prediction = model.scan(
+scan = model.scan(
     text=article,
     max_seq_length=64,
     overlap=16
 )
 
-print(f"Label: {prediction.label}, Confidence: {prediction.confidence:.4f}")
+print(f"Label: {scan.label}, Confidence: {scan.confidence:.4f}")
