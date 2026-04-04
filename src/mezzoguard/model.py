@@ -56,7 +56,7 @@ class PromptGuardModel:
             results = [future.result() for future in futures]
         return ResultMaker.from_prediction(results)
 
-    def redact(self, text: str, max_seq_length: int=64, overlap: int=16, replace: str="[REDACTED]") -> str:
+    def redact(self, text: str, max_seq_length: int=64, overlap: int=16, replace: str="[REDACTED]", confidence: float=0.5) -> str:
         self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         redacted_chunks = []
@@ -66,7 +66,7 @@ class PromptGuardModel:
             previous_unsafe = False
             for chunk, future in zip(chunks, futures):
                 result = future.result()
-                if result["label"] == "unsafe":
+                if result["label"] == "unsafe" and result["confidence"] >= confidence:
                     if previous_unsafe:
                         continue
                     redacted_chunks.append(replace)
@@ -75,3 +75,5 @@ class PromptGuardModel:
                     redacted_chunks.append(self._reform_tokenized_chunk(chunk))
                     previous_unsafe = False
         return " ".join(redacted_chunks)
+
+
