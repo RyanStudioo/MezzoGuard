@@ -9,7 +9,7 @@ class Result:
 class ResultMaker:
 
     @classmethod
-    def _from_prediction(cls, chunks: list[dict]) -> Result:
+    def from_prediction(cls, chunks: list[dict]) -> Result:
         if len(chunks) == len([i for i in chunks if i["label"] == "safe"]):
             label = "safe"
             confidence = min([i["score"] for i in chunks])

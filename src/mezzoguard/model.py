@@ -3,7 +3,7 @@ from typing import Optional
 
 from transformers import pipeline
 
-from src.mezzoguard.resultmaker import ResultMaker
+from src.mezzoguard.resultmaker import ResultMaker, Result
 
 
 class PromptGuardModel:
@@ -32,25 +32,24 @@ class PromptGuardModel:
         result = self.pipeline(decoded_chunk)[0]
         return result
 
-    def load_model(self):
+    def load_model(self) -> None:
         if not self.pipeline:
             self.pipeline = pipeline("text-classification", model=self.name)
         return
 
-    def get_token_length(self, text: str):
+    def get_token_length(self, text: str) -> int:
         self.load_model()
         tokens = self.pipeline.tokenizer.tokenize(text)
         return len(tokens)
 
-    def predict(self, text: str, max_seq_length: int=64, overlap: int=16):
+    def predict(self, text: str, max_seq_length: int=64, overlap: int=16) -> Result:
         self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         results = []
-        print(chunks)
         with ThreadPoolExecutor() as executor:
             futures = [executor.submit(self._predict_tokenized_text, chunk) for chunk in chunks]
             results = [future.result() for future in futures]
-        return ResultMaker._from_prediction(results)
+        return ResultMaker.from_prediction(results)
 
 
 
