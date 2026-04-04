@@ -32,6 +32,11 @@ class PromptGuardModel:
         result = self.pipeline(decoded_chunk)[0]
         return result
 
+    def _reform_tokenized_chunk(self, chunk: list[str]) -> str:
+        token_ids = self.pipeline.tokenizer.convert_tokens_to_ids(chunk)
+        reformed_text = self.pipeline.tokenizer.decode(token_ids, skip_special_tokens=True)
+        return reformed_text
+
     def load_model(self) -> None:
         if not self.pipeline:
             self.pipeline = pipeline("text-classification", model=self.name)
@@ -50,3 +55,23 @@ class PromptGuardModel:
             futures = [executor.submit(self._predict_tokenized_text, chunk) for chunk in chunks]
             results = [future.result() for future in futures]
         return ResultMaker.from_prediction(results)
+
+    def redact(self, text: str, max_seq_length: int=64, overlap: int=16, replace: str="[REDACTED]") -> str:
+        self.load_model()
+        chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
+        redacted_chunks = []
+        with ThreadPoolExecutor() as executor:
+            futures = [executor.submit(self._predict_tokenized_text, chunk) for chunk in chunks]
+
+            previous_unsafe = False
+            for chunk, future in zip(chunks, futures):
+                result = future.result()
+                if result["label"] == "unsafe":
+                    if previous_unsafe:
+                        continue
+                    redacted_chunks.append(replace)
+                    previous_unsafe = True
+                else:
+                    redacted_chunks.append(self._reform_tokenized_chunk(chunk))
+                    previous_unsafe = False
+        return " ".join(redacted_chunks)
