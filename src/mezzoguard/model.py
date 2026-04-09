@@ -5,8 +5,8 @@ from typing import Optional, Callable
 
 from transformers import pipeline
 
-from mezzoguard.errors import UnsafePromptError
-from src.mezzoguard.resultmaker import ResultMaker, Result
+from .errors import UnsafePromptError
+from .resultmaker import ResultMaker, Result
 
 
 class PromptGuardModel:

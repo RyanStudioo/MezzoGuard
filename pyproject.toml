@@ -1,8 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "mezzoguard"
-version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.13"
+name = "mezzo-guard"
+version = "0.1.0-alpha.1"
+description = "Mezzo Guard is a Python SDK designed to add a protective layer to LLM applications attacks such as jailbreaking and prompt injection, powered by custom-trained models adapted to recent trends. Mezzo Guard can be easily added into your pipeline, offering great protection with little effort."
+requires-python = ">=3.11"
 dependencies = [
-    "transformers>=5.5.0",
+    "transformers",
 ]
+readme= "README.md"
+authors = [
+    {name="Ryan Studio", email="ryanstudiobusiness@gmail.com"}
+]
+maintainers = [
+    {name="Ryan Studio", email="ryanstudiobusiness@gmail.com"}
+]
+keywords = ["LLM", "security", "jailbreak", "prompt injection", "prompt guard", "python sdk", "mezzo", "mezzo guard", "guard"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mezzoguard"]
