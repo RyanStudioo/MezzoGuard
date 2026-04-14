@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "transformers",
 ]
-readme= "README.md"
+readme = "README.md"
 authors = [
     {name="Ryan Studio", email="ryanstudiobusiness@gmail.com"}
 ]

@@ -1,6 +1,6 @@
 import transformers
 transformers.logging.set_verbosity_error()
 
-from .model import PromptGuardModel
+from mezzoguard.modules.prompt_guard.prompt_guard_model import PromptGuardModel
 from .preset_models import Models
-from .resultmaker import Result
+from .results import Result
