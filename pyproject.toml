@@ -17,7 +17,19 @@ authors = [
 maintainers = [
     {name="Ryan Studio", email="ryanstudiobusiness@gmail.com"}
 ]
-keywords = ["LLM", "security", "jailbreak", "prompt injection", "prompt guard", "python sdk", "mezzo", "mezzo guard", "guard"]
+keywords = [
+    # Name Related
+    "mezzo guard", "mezzo", "mezzo prompt guard", "mezzo content guard", "mezzo moderation guard", "mezzo jailbreak guard", "mezzo ai", "mezzo security",
+
+    # AI Related
+    "LLM", "ai", "artificial intelligence", "ai model", "language model", "inference",
+
+    # Security Related
+    "security", "jailbreak", "prompt injection", "prompt guard", "guard", "content guard", "content moderation", "moderation", "ai moderation",
+
+    # General Keywords
+    "content safety", "ai safety", "model safety", "application security", "python sdk", "sdk"
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mezzoguard"]

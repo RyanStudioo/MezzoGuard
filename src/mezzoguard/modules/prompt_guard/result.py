@@ -1,5 +1,4 @@
-from mezzoguard import Result
-
+from mezzoguard.results import Result
 
 class PromptGuardResult(Result):
     accepted_labels = ["safe", "unsafe"]
