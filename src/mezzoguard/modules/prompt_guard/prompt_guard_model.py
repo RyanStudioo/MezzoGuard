@@ -6,10 +6,10 @@ from typing import Optional, Callable
 from transformers import pipeline
 
 from ...errors import UnsafePromptError
-from ...model import Model
+from ...model import Model, GuardModel
 from ...modules.prompt_guard.result import PromptGuardResult
 
-class PromptGuardModel(Model):
+class PromptGuardModel(GuardModel):
     def __init__(self, name: str):
         super().__init__(name=name, task="text-classification")
         self.pipeline: Optional[pipeline] = None

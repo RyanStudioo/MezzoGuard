@@ -1,15 +1,20 @@
+import inspect
 from abc import abstractmethod, ABC
-from typing import Optional, Union, Literal
+from typing import Optional, Union, Literal, Callable
 
 from transformers import pipeline
 
+from .results import Result
+
 
 class Model(ABC):
-    def __init__(self,
-                 name: str,
-                 task: Union[
-                     Literal["text-classification"]
-                 ]):
+    def __init__(
+            self,
+            name: str,
+            task: Union[
+                Literal["text-classification"]
+            ]
+    ):
         self.name = name
         self.task = task
         self.pipeline: Optional[pipeline] = None
@@ -66,3 +71,45 @@ class Model(ABC):
         if not self.pipeline:
             self.pipeline = pipeline(self.task, model=self.name)
         return
+
+class GuardModel(Model):
+
+    @abstractmethod
+    def scan(
+            self,
+            text: str,
+            max_seq_length: int = 64,
+            overlap: int = 16
+    ) -> Result: ...
+
+    @abstractmethod
+    def redact(
+            self,
+            text: str,
+            max_seq_length: int = 64,
+            overlap: int = 16,
+            replace: str = "[REDACTED]",
+            confidence: float = 0.5
+    ) -> str: ...
+
+    @abstractmethod
+    def redact_before_exec(
+            self,
+            param: str,
+            max_seq_length: int = 64,
+            overlap: int = 16,
+            replace: str = "[REDACTED]",
+            confidence: float = 0.5
+    ) -> Callable: ...
+
+    @abstractmethod
+    def scan_before_exec(
+            self,
+            param: str,
+            max_seq_length: int = 64,
+            overlap: int = 16,
+            confidence: float=0.5
+    ) -> Callable: ...
+
+
+
