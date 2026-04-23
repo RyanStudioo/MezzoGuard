@@ -1,4 +1,4 @@
-from mezzoguard import PromptGuardModel, Models
+from mezzoguard import PromptGuardModel, PROMPTGUARD
 
 article = """
 Apollo 6 (April 4, 1968), also known as AS-502, was the third and final uncrewed flight in the United States' Apollo program and the second test of the Saturn V launch vehicle. Apollo 6 qualified the Saturn V for use on crewed missions, and it was used for human spaceflight beginning on Apollo 8 in December 1968.
@@ -14,7 +14,7 @@ Apollo 6, the second test flight of the Saturn V launch vehicle, was intended to
 The mission was intended to test the Saturn V launch vehicle's ability to send the entire Apollo spacecraft to the Moon—in particular, to test the stresses on the LM and the vibration modes of the entire Saturn V with near-full loads.[4] With the spacecraft having been qualified for crewed flight through the Apollo 4 mission (the first flight of the Saturn V), the focus was on fully qualifying the launch vehicle. Nominal completion of planned mission events through attainment of the initial parking orbit, and the restarting of the S-IVB to propel the space vehicle towards the planned distance, beyond the Moon's orbit, was deemed sufficient to fulfill Apollo 6's main objectives.[5] 
 """
 
-model = PromptGuardModel(Models.MEZZO_V2_LARGE)
+model = PromptGuardModel(PROMPTGUARD.MEZZO_PROMPT_GUARD_V2_SMALL)
 
 redact = model.redact(
     text=article,

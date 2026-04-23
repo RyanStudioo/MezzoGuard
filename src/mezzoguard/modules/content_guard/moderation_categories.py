@@ -1,14 +1,14 @@
 from enum import Enum
 
-class ContentGuardModerationCategories(Enum):
-    SEXUAL = "Sexual"
-    VIOLENCE = "Violence"
-    HATE_SPEECH = "Hate Speech"
-    TOXIC = "Toxic"
+class ModerationCategory(Enum):
     DIVISIVE = "Divisive"
+    HATE_SPEECH = "Hate Speech"
     SELF_HARM = "Self-Harm"
+    SEXUAL = "Sexual"
+    TOXIC = "Toxic"
+    VIOLENCE = "Violence"
 
-class ContentGuardCategory:
-    def __init__(self, category: ContentGuardModerationCategories, confidence: float):
+class ContentGuardCheck:
+    def __init__(self, category: ModerationCategory, threshold: float):
         self.category = category
-        self.confidence = confidence
+        self.threshold = threshold
