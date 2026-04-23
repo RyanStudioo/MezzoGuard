@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 
-from mezzoguard.model import Model
+from ...model import Model
 
 
 class ContentGuardModel(Model):

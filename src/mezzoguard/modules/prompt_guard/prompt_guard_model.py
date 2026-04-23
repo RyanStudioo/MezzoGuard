@@ -5,9 +5,9 @@ from typing import Optional, Callable
 
 from transformers import pipeline
 
-from mezzoguard.errors import UnsafePromptError
-from mezzoguard.model import Model
-from mezzoguard.modules.prompt_guard.result import PromptGuardResult
+from ...errors import UnsafePromptError
+from ...model import Model
+from ...modules.prompt_guard.result import PromptGuardResult
 
 class PromptGuardModel(Model):
     def __init__(self, name: str):
