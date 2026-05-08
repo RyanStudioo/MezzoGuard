@@ -15,8 +15,7 @@ class PromptGuardModel(GuardModel):
         self.pipeline: Optional[pipeline] = None
 
 
-    @classmethod
-    def _from_prediction(cls, chunks: list[dict]) -> PromptGuardResult:
+    def _from_prediction(self, chunks: list[dict]) -> PromptGuardResult:
         if len(chunks) == len([i for i in chunks if i["label"] == "safe"]):
             label = "safe"
             confidence = min([i["score"] for i in chunks])
