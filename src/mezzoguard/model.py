@@ -87,6 +87,14 @@ class Model(ABC):
             self.pipeline = pipeline(self.task, model=self.name)
         return
 
+    def eject_model(self) -> None:
+        if self.pipeline is not None:
+            if hasattr(self.pipeline, 'model'):
+                del self.pipeline.model
+            del self.pipeline
+            self.pipeline = None
+
+
 class GuardModel(Model):
 
     @abstractmethod
