@@ -1,7 +1,10 @@
+import functools
+import inspect
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Union
 
 from .moderation_categories import ContentGuardCheck, ModerationCategory
+from ...errors import UnsafePromptError
 from ...model import Model, GuardModel
 
 
@@ -37,7 +40,7 @@ class ContentGuardModel(GuardModel):
         threshold = self._get_threshold_from_category(category)
         return confidence >= threshold
 
-    def _check_results_for_violations(self, results: list[dict]) -> list[dict]:
+    def _check_results_for_violations(self, results: list[dict]) -> dict:
         violations = {}
         for result in results:
             category = result["label"]
@@ -51,6 +54,12 @@ class ContentGuardModel(GuardModel):
     @classmethod
     def _from_prediction(cls, results: list[list[dict]]):
         ...
+
+    def _chunk_has_violation(self, chunk_result: list[dict], confidence: float) -> bool:
+        for result in chunk_result:
+            if result["score"] >= confidence:
+                return True
+        return False
 
     def scan(self, text: str, max_seq_length: int=64, overlap: int=8):
         self.load_model()
@@ -72,17 +81,68 @@ class ContentGuardModel(GuardModel):
                confidence: float = 0.5) -> str:
         self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
-        results = []
+        redacted_chunks = []
         with ThreadPoolExecutor() as executor:
             futures = [executor.submit(self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
-            results = [future.result() for future in futures]
 
+            previous_flagged = False
+            for chunk, future in zip(chunks, futures):
+                result = future.result()
+                if self._chunk_has_violation(result, confidence):
+                    if previous_flagged:
+                        continue
+                    redacted_chunks.append(replace)
+                    previous_flagged = True
+                else:
+                    redacted_chunks.append(self._reform_tokenized_chunk(chunk))
+                    previous_flagged = False
+        return " ".join(redacted_chunks)
 
     def redact_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
                            confidence: float = 0.5) -> Callable:
-        pass
+        self.load_model()
+
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                sig = inspect.signature(func)
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+
+                value = bound.arguments.get(param)
+
+                if value is not None:
+                    redacted = self.redact(value, max_seq_length, overlap, replace, confidence)
+                    bound.arguments[param] = redacted
+
+                return func(*bound.args, **bound.kwargs)
+
+            return wrapper
+
+        return decorator
 
     def scan_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16,
                          confidence: float = 0.5) -> Callable:
-        pass
+        self.load_model()
+
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                sig = inspect.signature(func)
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+
+                value = bound.arguments.get(param)
+
+                if value is not None:
+                    violations = self.scan(value, max_seq_length, overlap)
+                    flagged = [cat for cat, is_violation in violations.items() if is_violation]
+                    if flagged:
+                        raise UnsafePromptError(confidence)
+
+                return func(*bound.args, **bound.kwargs)
+
+            return wrapper
+
+        return decorator
 
