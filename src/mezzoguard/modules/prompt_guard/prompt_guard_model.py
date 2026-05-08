@@ -5,11 +5,11 @@ from typing import Optional, Callable
 
 from transformers import pipeline
 
-from mezzoguard.errors import UnsafePromptError
-from mezzoguard.model import Model
-from mezzoguard.modules.prompt_guard.result import PromptGuardResult
+from ...errors import UnsafePromptError
+from ...model import Model, GuardModel
+from ...modules.prompt_guard.result import PromptGuardResult
 
-class PromptGuardModel(Model):
+class PromptGuardModel(GuardModel):
     def __init__(self, name: str):
         super().__init__(name=name, task="text-classification")
         self.pipeline: Optional[pipeline] = None

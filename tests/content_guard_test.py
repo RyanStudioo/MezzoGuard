@@ -1,6 +1,6 @@
-from mezzoguard import ContentGuardModel
+from mezzoguard import ContentGuardModel, CONTENTGUARD
 
-model = ContentGuardModel(name=r"C:\Users\yanya\PycharmProjects\ContentGuard\models\v1-models\mezzo-content-guard-large\checkpoint-25506")
+model = ContentGuardModel(name=CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE_PREVIEW)
 
 while True:
     user_input = input("Enter a prompt (or 'exit' to quit): ")
