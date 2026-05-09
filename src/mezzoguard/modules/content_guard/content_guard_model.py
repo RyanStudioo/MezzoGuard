@@ -1,3 +1,4 @@
+import asyncio
 import functools
 import inspect
 from concurrent.futures import ThreadPoolExecutor
@@ -89,6 +90,15 @@ class ContentGuardModel(GuardModel):
             chunk_results = [future.result() for future in futures]
         return self._from_prediction(chunk_results)
 
+    async def async_scan(self, text: str, max_seq_length: int = 64, overlap: int = 8) -> ContentGuardResult:
+        await asyncio.to_thread(self.load_model)
+        chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            tasks = [loop.run_in_executor(executor, self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
+            chunk_results = await asyncio.gather(*tasks)
+        return self._from_prediction(chunk_results)
+
 
     def redact(self, text: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
                confidence: float = 0.5) -> str:
@@ -111,26 +121,63 @@ class ContentGuardModel(GuardModel):
                     previous_flagged = False
         return " ".join(redacted_chunks)
 
+    async def async_redact(self, text: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
+               confidence: float = 0.5) -> str:
+        await asyncio.to_thread(self.load_model)
+        chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            tasks = [loop.run_in_executor(executor, self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
+            chunk_results = await asyncio.gather(*tasks)
+
+        redacted_chunks = []
+        previous_flagged = False
+        for chunk, result in zip(chunks, chunk_results):
+            if self._chunk_has_violation(result, confidence):
+                if previous_flagged:
+                    continue
+                redacted_chunks.append(replace)
+                previous_flagged = True
+            else:
+                redacted_chunks.append(self._reform_tokenized_chunk(chunk))
+                previous_flagged = False
+        return " ".join(redacted_chunks)
+
     def redact_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
                            confidence: float = 0.5) -> Callable:
         self.load_model()
 
         def decorator(func):
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                sig = inspect.signature(func)
-                bound = sig.bind(*args, **kwargs)
-                bound.apply_defaults()
+            if asyncio.iscoroutinefunction(func):
+                @functools.wraps(func)
+                async def async_wrapper(*args, **kwargs):
+                    sig = inspect.signature(func)
+                    bound = sig.bind(*args, **kwargs)
+                    bound.apply_defaults()
 
-                value = bound.arguments.get(param)
+                    value = bound.arguments.get(param)
 
-                if value is not None:
-                    redacted = self.redact(value, max_seq_length, overlap, replace, confidence)
-                    bound.arguments[param] = redacted
+                    if value is not None:
+                        redacted = await self.async_redact(value, max_seq_length, overlap, replace, confidence)
+                        bound.arguments[param] = redacted
 
-                return func(*bound.args, **bound.kwargs)
+                    return await func(*bound.args, **bound.kwargs)
+                return async_wrapper
+            else:
+                @functools.wraps(func)
+                def wrapper(*args, **kwargs):
+                    sig = inspect.signature(func)
+                    bound = sig.bind(*args, **kwargs)
+                    bound.apply_defaults()
 
-            return wrapper
+                    value = bound.arguments.get(param)
+
+                    if value is not None:
+                        redacted = self.redact(value, max_seq_length, overlap, replace, confidence)
+                        bound.arguments[param] = redacted
+
+                    return func(*bound.args, **bound.kwargs)
+                return wrapper
 
         return decorator
 
@@ -139,22 +186,38 @@ class ContentGuardModel(GuardModel):
         self.load_model()
 
         def decorator(func):
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                sig = inspect.signature(func)
-                bound = sig.bind(*args, **kwargs)
-                bound.apply_defaults()
+            if asyncio.iscoroutinefunction(func):
+                @functools.wraps(func)
+                async def async_wrapper(*args, **kwargs):
+                    sig = inspect.signature(func)
+                    bound = sig.bind(*args, **kwargs)
+                    bound.apply_defaults()
 
-                value = bound.arguments.get(param)
+                    value = bound.arguments.get(param)
 
-                if value is not None:
-                    result = self.scan(value, max_seq_length, overlap)
-                    if not result.is_safe():
-                        raise UnsafePromptError(confidence)
+                    if value is not None:
+                        result = await self.async_scan(value, max_seq_length, overlap)
+                        if not result.is_safe():
+                            raise UnsafePromptError(confidence)
 
-                return func(*bound.args, **bound.kwargs)
+                    return await func(*bound.args, **bound.kwargs)
+                return async_wrapper
+            else:
+                @functools.wraps(func)
+                def wrapper(*args, **kwargs):
+                    sig = inspect.signature(func)
+                    bound = sig.bind(*args, **kwargs)
+                    bound.apply_defaults()
 
-            return wrapper
+                    value = bound.arguments.get(param)
+
+                    if value is not None:
+                        result = self.scan(value, max_seq_length, overlap)
+                        if not result.is_safe():
+                            raise UnsafePromptError(confidence)
+
+                    return func(*bound.args, **bound.kwargs)
+                return wrapper
 
         return decorator
 

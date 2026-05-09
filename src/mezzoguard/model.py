@@ -144,5 +144,23 @@ class GuardModel(Model):
             confidence: float=0.5
     ) -> Callable: ...
 
+    @abstractmethod
+    async def async_scan(
+            self,
+            text: str,
+            max_seq_length: int = 64,
+            overlap: int = 16
+    ) -> Result: ...
+
+    @abstractmethod
+    async def async_redact(
+            self,
+            text: str,
+            max_seq_length: int = 64,
+            overlap: int = 16,
+            replace: str = "[REDACTED]",
+            confidence: float = 0.5
+    ) -> str: ...
+
 
 
