@@ -13,11 +13,21 @@ class Model(ABC):
             name: str,
             task: Union[
                 Literal["text-classification"]
-            ]
+            ],
     ):
         self.name = name
         self.task = task
         self.pipeline: Optional[pipeline] = None
+
+        self.load_model()
+
+    def __enter__(self):
+        self.load_model()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.eject_model()
+        return False
 
     @classmethod
     @abstractmethod
