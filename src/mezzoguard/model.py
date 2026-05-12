@@ -1,6 +1,6 @@
 import inspect
 from abc import abstractmethod, ABC
-from typing import Optional, Union, Literal, Callable
+from typing import Optional, Union, Literal, Callable, Any
 
 from transformers import pipeline
 
@@ -122,7 +122,7 @@ class GuardModel(Model):
             max_seq_length: int = 64,
             overlap: int = 16,
             replace: str = "[REDACTED]",
-            confidence: float = 0.5
+            **kwargs: Any
     ) -> str: ...
 
     @abstractmethod
@@ -132,7 +132,7 @@ class GuardModel(Model):
             max_seq_length: int = 64,
             overlap: int = 16,
             replace: str = "[REDACTED]",
-            confidence: float = 0.5
+            **kwargs: Any
     ) -> Callable: ...
 
     @abstractmethod
@@ -141,7 +141,7 @@ class GuardModel(Model):
             param: str,
             max_seq_length: int = 64,
             overlap: int = 16,
-            confidence: float=0.5
+            **kwargs: Any
     ) -> Callable: ...
 
     @abstractmethod
@@ -159,7 +159,7 @@ class GuardModel(Model):
             max_seq_length: int = 64,
             overlap: int = 16,
             replace: str = "[REDACTED]",
-            confidence: float = 0.5
+            **kwargs: Any
     ) -> str: ...
 
 

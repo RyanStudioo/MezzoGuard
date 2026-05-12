@@ -2,7 +2,7 @@ import asyncio
 import functools
 import inspect
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Union
+from typing import Callable, Union, Any
 
 from .moderation_categories import ContentGuardCheck, ModerationCategory
 from .result import ContentGuardResult
@@ -76,9 +76,12 @@ class ContentGuardModel(GuardModel):
 
         return ContentGuardResult(chunks=results, violations=violations)
 
-    def _chunk_has_violation(self, chunk_result: list[dict], confidence: float) -> bool:
+    def _chunk_has_violation(self, chunk_result: list[dict]) -> bool:
         for result in chunk_result:
-            if result["score"] >= confidence:
+            label = result.get("label", "")
+            score = result.get("score", 0.0)
+            threshold = self._get_threshold_from_category(label)
+            if score >= threshold:
                 return True
         return False
 
@@ -100,8 +103,7 @@ class ContentGuardModel(GuardModel):
         return self._from_prediction(chunk_results)
 
 
-    def redact(self, text: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
-               confidence: float = 0.5) -> str:
+    def redact(self, text: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]", **kwargs: Any) -> str:
         self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         redacted_chunks = []
@@ -111,7 +113,7 @@ class ContentGuardModel(GuardModel):
             previous_flagged = False
             for chunk, future in zip(chunks, futures):
                 result = future.result()
-                if self._chunk_has_violation(result, confidence):
+                if self._chunk_has_violation(result):
                     if previous_flagged:
                         continue
                     redacted_chunks.append(replace)
@@ -121,8 +123,7 @@ class ContentGuardModel(GuardModel):
                     previous_flagged = False
         return " ".join(redacted_chunks)
 
-    async def async_redact(self, text: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
-               confidence: float = 0.5) -> str:
+    async def async_redact(self, text: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]", **kwargs: Any) -> str:
         await asyncio.to_thread(self.load_model)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         loop = asyncio.get_event_loop()
@@ -133,7 +134,7 @@ class ContentGuardModel(GuardModel):
         redacted_chunks = []
         previous_flagged = False
         for chunk, result in zip(chunks, chunk_results):
-            if self._chunk_has_violation(result, confidence):
+            if self._chunk_has_violation(result):
                 if previous_flagged:
                     continue
                 redacted_chunks.append(replace)
@@ -143,8 +144,7 @@ class ContentGuardModel(GuardModel):
                 previous_flagged = False
         return " ".join(redacted_chunks)
 
-    def redact_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
-                           confidence: float = 0.5) -> Callable:
+    def redact_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]", **kwargs: Any) -> Callable:
         self.load_model()
 
         def decorator(func):
@@ -158,7 +158,7 @@ class ContentGuardModel(GuardModel):
                     value = bound.arguments.get(param)
 
                     if value is not None:
-                        redacted = await self.async_redact(value, max_seq_length, overlap, replace, confidence)
+                        redacted = await self.async_redact(value, max_seq_length, overlap, replace)
                         bound.arguments[param] = redacted
 
                     return await func(*bound.args, **bound.kwargs)
@@ -173,7 +173,7 @@ class ContentGuardModel(GuardModel):
                     value = bound.arguments.get(param)
 
                     if value is not None:
-                        redacted = self.redact(value, max_seq_length, overlap, replace, confidence)
+                        redacted = self.redact(value, max_seq_length, overlap, replace)
                         bound.arguments[param] = redacted
 
                     return func(*bound.args, **bound.kwargs)
