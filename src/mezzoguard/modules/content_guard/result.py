@@ -1,4 +1,4 @@
-from .moderation_categories import ModerationCategory
+from .categories import ModerationCategory
 
 from ...results import Result
 

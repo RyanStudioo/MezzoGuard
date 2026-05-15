@@ -4,7 +4,7 @@ import inspect
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Union, Any
 
-from .moderation_categories import ContentGuardCheck, ModerationCategory
+from .categories import ContentGuardCheck, ModerationCategory
 from .result import ContentGuardResult
 from ...errors import UnsafePromptError
 from ...model import Model, GuardModel
