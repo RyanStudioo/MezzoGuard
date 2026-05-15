@@ -1,9 +1,10 @@
 from ...results import Result
+from .categories import PromptGuardCategory
 
 class PromptGuardResult(Result):
-    accepted_labels = ["safe", "unsafe"]
+    accepted_labels = [PromptGuardCategory.SAFE, PromptGuardCategory.UNSAFE]
 
-    def __init__(self, chunks: list[dict], label: str, confidence: float):
+    def __init__(self, chunks: list[dict], label: PromptGuardCategory, confidence: float):
         self._chunks = chunks
         self.label = label
         self.confidence = confidence
@@ -12,9 +13,9 @@ class PromptGuardResult(Result):
             raise ValueError(f"Invalid label: {self.label}. Accepted labels are: {self.accepted_labels}")
 
     def is_safe(self, threshold: float=0.5) -> bool:
-        if self.label == "safe":
+        if self.label == PromptGuardCategory.SAFE:
             return True
-        elif self.label == "unsafe":
+        elif self.label == PromptGuardCategory.UNSAFE:
             if self.confidence < threshold:
                 return True
             else:

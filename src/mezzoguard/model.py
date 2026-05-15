@@ -106,6 +106,14 @@ class Model(ABC):
 
 
 class GuardModel(Model):
+    def __init__(
+            self,
+            name: str,
+            task: Union[
+                     Literal["text-classification"]
+            ]
+                 ):
+        super().__init__(name=name, task=task)
 
     @abstractmethod
     def scan(

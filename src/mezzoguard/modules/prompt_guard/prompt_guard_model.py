@@ -3,27 +3,34 @@ import functools
 import inspect
 from concurrent.futures.thread import ThreadPoolExecutor
 from typing import Optional, Callable
+import warnings
 
 from transformers import pipeline
 
+from .config import MODELS_CONFIG, PromptGuardConfig
+from .categories import PromptGuardCategory
 from ...errors import UnsafePromptError
-from ...model import Model, GuardModel
-from ...modules.prompt_guard.result import PromptGuardResult
+from ...model import GuardModel
+from .result import PromptGuardResult
 
 class PromptGuardModel(GuardModel):
     def __init__(self, name: str):
         super().__init__(name=name, task="text-classification")
         self.pipeline: Optional[pipeline] = None
 
+        self.config: PromptGuardConfig = MODELS_CONFIG[self.name]
+        if not self.config.mappings:
+            warnings.warn(f"No preset config found for model {self.name}. You may need to provide a custom config.")
+
 
     def _from_prediction(self, chunks: list[dict]) -> PromptGuardResult:
-        if len(chunks) == len([i for i in chunks if i["label"] == "safe"]):
-            label = "safe"
-            confidence = min([i["score"] for i in chunks])
+        if all(self.config.get_category_for_label(c["label"]) == PromptGuardCategory.SAFE for c in chunks):
+            label = PromptGuardCategory.SAFE
+            confidence = min(c["score"] for c in chunks)
         else:
-            chunks = [i for i in chunks if i["label"] == "unsafe"]
-            label = "unsafe"
-            confidence = max([i["score"] for i in chunks])
+            chunks = [c for c in chunks if self.config.get_category_for_label(c["label"]) == PromptGuardCategory.UNSAFE]
+            label = PromptGuardCategory.UNSAFE
+            confidence = max(c["score"] for c in chunks)
         return PromptGuardResult(
             chunks=chunks,
             label=label,
@@ -58,7 +65,7 @@ class PromptGuardModel(GuardModel):
             previous_unsafe = False
             for chunk, future in zip(chunks, futures):
                 result = future.result()
-                if result["label"] == "unsafe" and result["score"] >= confidence:
+                if self.config.get_category_for_label(result["label"]) == PromptGuardCategory.UNSAFE and result["score"] >= confidence:
                     if previous_unsafe:
                         continue
                     redacted_chunks.append(replace)
@@ -80,7 +87,7 @@ class PromptGuardModel(GuardModel):
         redacted_chunks = []
         previous_unsafe = False
         for chunk, result in zip(chunks, chunk_results):
-            if result["label"] == "unsafe" and result["score"] >= confidence:
+            if self.config.get_category_for_label(result["label"]) == PromptGuardCategory.UNSAFE and result["score"] >= confidence:
                 if previous_unsafe:
                     continue
                 redacted_chunks.append(replace)
@@ -143,7 +150,7 @@ class PromptGuardModel(GuardModel):
 
                     if value is not None:
                         result = await self.async_scan(value, max_seq_length, overlap)
-                        if result.label == "unsafe" and result.confidence >= confidence:
+                        if result.label == PromptGuardCategory.UNSAFE and result.confidence >= confidence:
                             raise UnsafePromptError(result.confidence)
 
                     return await func(*bound.args, **bound.kwargs)
@@ -159,7 +166,7 @@ class PromptGuardModel(GuardModel):
 
                     if value is not None:
                         result = self.scan(value, max_seq_length, overlap)
-                        if result.label == "unsafe" and result.confidence >= confidence:
+                        if result.label == PromptGuardCategory.UNSAFE and result.confidence >= confidence:
                             raise UnsafePromptError(result.confidence)
 
                     return func(*bound.args, **bound.kwargs)
