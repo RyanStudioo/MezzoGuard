@@ -1,6 +1,6 @@
 from enum import Enum
 
 
-class PromptGuardCategories(Enum):
+class PromptGuardCategory(Enum):
     UNSAFE = "unsafe"
     SAFE = "safe"
