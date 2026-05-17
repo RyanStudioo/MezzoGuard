@@ -1,7 +1,8 @@
 import asyncio
 import time
 
-from mezzoguard import Guard, CONTENTGUARD
+from mezzoguard import CONTENTGUARD
+from mezzoguard.modules.content_guard import Guard
 
 
 async def main():

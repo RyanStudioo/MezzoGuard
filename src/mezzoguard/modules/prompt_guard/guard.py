@@ -7,6 +7,7 @@ import warnings
 
 from transformers import pipeline
 
+from . import Result
 from .config import MODELS_CONFIG, PromptGuardConfig
 from .categories import Category
 from ...errors import UnsafePromptError
@@ -24,7 +25,7 @@ class Guard(GuardModel):
             warnings.warn(f"No preset config found for model {self.name}. You may need to provide a custom config.")
 
 
-    def _from_prediction(self, chunks: list[dict]) -> BaseResult:
+    def _from_prediction(self, chunks: list[dict]) -> Result:
         if all(self.config.get_category_for_label(c["label"]) == Category.SAFE for c in chunks):
             label = Category.SAFE
             confidence = min(c["score"] for c in chunks)
@@ -32,13 +33,13 @@ class Guard(GuardModel):
             chunks = [c for c in chunks if self.config.get_category_for_label(c["label"]) == Category.UNSAFE]
             label = Category.UNSAFE
             confidence = max(c["score"] for c in chunks)
-        return BaseResult(
+        return Result(
             chunks=chunks,
             label=label,
             confidence=confidence
         )
 
-    def scan(self, text: str, max_seq_length: int=64, overlap: int=16) -> BaseResult:
+    def scan(self, text: str, max_seq_length: int=64, overlap: int=16) -> Result:
         self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         results = []
@@ -47,7 +48,7 @@ class Guard(GuardModel):
             results = [future.result() for future in futures]
         return self._from_prediction(results)
 
-    async def async_scan(self, text: str, max_seq_length: int = 64, overlap: int = 16) -> BaseResult:
+    async def async_scan(self, text: str, max_seq_length: int = 64, overlap: int = 16) -> Result:
         await asyncio.to_thread(self.load_model)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         loop = asyncio.get_event_loop()
