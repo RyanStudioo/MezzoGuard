@@ -74,7 +74,7 @@ class Guard(GuardModel):
                 continue
             violations[category] = max_score >= self._get_threshold_from_category(category)
 
-        return Result(chunks=results, violations=violations)
+        return Result(chunks=results, scores=max_scores, violations=violations)
 
     def _chunk_has_violation(self, chunk_result: list[dict]) -> bool:
         for result in chunk_result:

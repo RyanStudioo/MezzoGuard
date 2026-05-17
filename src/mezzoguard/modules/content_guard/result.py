@@ -3,8 +3,9 @@ from ...base_classes import BaseResult
 
 
 class Result(BaseResult):
-    def __init__(self, chunks: list[list[dict]], violations: dict[Category, bool]):
+    def __init__(self, chunks: list[list[dict]], scores: dict[Category, float], violations: dict[Category, bool]):
         self._chunks = chunks
+        self.scores = scores
         self.violations = violations
 
     def is_safe(self) -> bool:
