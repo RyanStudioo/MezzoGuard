@@ -1,5 +1,4 @@
 from ...base_classes import Config
-from ...modules.content_guard.categories import Category
 from ...modules.prompt_guard.categories import Category
 
 

@@ -7,7 +7,7 @@ from typing import Callable, Union, Any
 from .categories import ContentGuardCheck, Category
 from .result import Result
 from ...errors import UnsafePromptError
-from ...model import Model, GuardModel
+from ...model import GuardModel
 
 
 class Guard(GuardModel):

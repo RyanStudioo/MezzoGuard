@@ -1,5 +1,4 @@
 from .categories import Category
-
 from ...base_classes import BaseResult
 
 
