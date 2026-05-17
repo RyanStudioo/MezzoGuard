@@ -4,7 +4,7 @@ from typing import Optional, Union, Literal, Callable, Any
 
 from transformers import pipeline
 
-from .results import Result
+from .base_classes import BaseResult
 
 
 class Model(ABC):
@@ -121,7 +121,7 @@ class GuardModel(Model):
             text: str,
             max_seq_length: int = 64,
             overlap: int = 16
-    ) -> Result: ...
+    ) -> BaseResult: ...
 
     @abstractmethod
     def redact(
@@ -158,7 +158,7 @@ class GuardModel(Model):
             text: str,
             max_seq_length: int = 64,
             overlap: int = 16
-    ) -> Result: ...
+    ) -> BaseResult: ...
 
     @abstractmethod
     async def async_redact(

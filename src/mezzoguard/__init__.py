@@ -1,7 +1,7 @@
 import transformers
 transformers.logging.set_verbosity_error()
 
-from .modules.prompt_guard.prompt_guard_model import PromptGuardModel
-from .modules.content_guard.content_guard_model import ContentGuardModel
+from . import modules
 from .preset_models import PROMPTGUARD, CONTENTGUARD
-from .results import Result
+
+__all__ = ["modules", "PROMPTGUARD", "CONTENTGUARD"]

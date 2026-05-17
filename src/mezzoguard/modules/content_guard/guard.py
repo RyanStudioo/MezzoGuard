@@ -4,33 +4,33 @@ import inspect
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Union, Any
 
-from .categories import ContentGuardCheck, ModerationCategory
-from .result import ContentGuardResult
+from .categories import ContentGuardCheck, Category
+from .result import Result
 from ...errors import UnsafePromptError
 from ...model import Model, GuardModel
 
 
-class ContentGuardModel(GuardModel):
+class Guard(GuardModel):
     def __init__(self, name: str,
                  categories: list[ContentGuardCheck]=None
                  ):
         super().__init__(name, task="text-classification")
         if categories is None:
             categories = [
-                ContentGuardCheck(ModerationCategory.DIVISIVE, 0.5),
-                ContentGuardCheck(ModerationCategory.HATE_SPEECH, 0.5),
-                ContentGuardCheck(ModerationCategory.SELF_HARM, 0.5),
-                ContentGuardCheck(ModerationCategory.SEXUAL, 0.5),
-                ContentGuardCheck(ModerationCategory.TOXIC, 0.5),
-                ContentGuardCheck(ModerationCategory.VIOLENCE, 0.5),
+                ContentGuardCheck(Category.DIVISIVE, 0.5),
+                ContentGuardCheck(Category.HATE_SPEECH, 0.5),
+                ContentGuardCheck(Category.SELF_HARM, 0.5),
+                ContentGuardCheck(Category.SEXUAL, 0.5),
+                ContentGuardCheck(Category.TOXIC, 0.5),
+                ContentGuardCheck(Category.VIOLENCE, 0.5),
             ]
         self.categories = categories
 
-    def _get_threshold_from_category(self, category: Union[str, ModerationCategory]) -> float:
+    def _get_threshold_from_category(self, category: Union[str, Category]) -> float:
         for cat in self.categories:
             if isinstance(category, str):
                 category_name = category.upper()
-            elif isinstance(category, ModerationCategory):
+            elif isinstance(category, Category):
                 category_name = category.value.upper()
             else:
                 raise
@@ -38,7 +38,7 @@ class ContentGuardModel(GuardModel):
                  return cat.threshold
         return 1.0
 
-    def _check_if_violation(self, category: Union[str, ModerationCategory], confidence: float) -> bool:
+    def _check_if_violation(self, category: Union[str, Category], confidence: float) -> bool:
         threshold = self._get_threshold_from_category(category)
         return confidence >= threshold
 
@@ -53,12 +53,12 @@ class ContentGuardModel(GuardModel):
                 violations[category] = False
         return violations
 
-    def _is_supported_category(self, category: ModerationCategory) -> bool:
+    def _is_supported_category(self, category: Category) -> bool:
         return any([i for i in self.categories if i.category == category])
 
     def _from_prediction(self, results: list[list[dict]]):
-        label_to_category = {cat.value.lower(): cat for cat in ModerationCategory}
-        max_scores: dict[ModerationCategory, float] = {}
+        label_to_category = {cat.value.lower(): cat for cat in Category}
+        max_scores: dict[Category, float] = {}
         for chunk_result in results:
             for pred in chunk_result:
                 label = pred.get("label", "").lower()
@@ -74,7 +74,7 @@ class ContentGuardModel(GuardModel):
                 continue
             violations[category] = max_score >= self._get_threshold_from_category(category)
 
-        return ContentGuardResult(chunks=results, violations=violations)
+        return Result(chunks=results, violations=violations)
 
     def _chunk_has_violation(self, chunk_result: list[dict]) -> bool:
         for result in chunk_result:
@@ -85,7 +85,7 @@ class ContentGuardModel(GuardModel):
                 return True
         return False
 
-    def scan(self, text: str, max_seq_length: int = 64, overlap: int = 8) -> ContentGuardResult:
+    def scan(self, text: str, max_seq_length: int = 64, overlap: int = 8) -> Result:
         self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         with ThreadPoolExecutor() as executor:
@@ -93,7 +93,7 @@ class ContentGuardModel(GuardModel):
             chunk_results = [future.result() for future in futures]
         return self._from_prediction(chunk_results)
 
-    async def async_scan(self, text: str, max_seq_length: int = 64, overlap: int = 8) -> ContentGuardResult:
+    async def async_scan(self, text: str, max_seq_length: int = 64, overlap: int = 8) -> Result:
         await asyncio.to_thread(self.load_model)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         loop = asyncio.get_event_loop()
@@ -221,3 +221,4 @@ class ContentGuardModel(GuardModel):
 
         return decorator
 
+__all__ = ["Guard"]

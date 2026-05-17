@@ -1,11 +1,11 @@
 import asyncio
 import time
 
-from mezzoguard import ContentGuardModel, CONTENTGUARD
+from mezzoguard import Guard, CONTENTGUARD
 
 
 async def main():
-    model = ContentGuardModel(CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE_PREVIEW)
+    model = Guard(CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE_PREVIEW)
 
     text = "This is a test message to check if the async scanning works correctly."
 

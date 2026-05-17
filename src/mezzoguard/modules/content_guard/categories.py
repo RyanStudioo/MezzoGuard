@@ -1,6 +1,6 @@
 from enum import Enum
 
-class ModerationCategory(Enum):
+class Category(Enum):
     DIVISIVE = "divisive"
     HATE_SPEECH = "hate-speech"
     SELF_HARM = "self-harm"
@@ -9,6 +9,8 @@ class ModerationCategory(Enum):
     VIOLENCE = "violence"
 
 class ContentGuardCheck:
-    def __init__(self, category: ModerationCategory, threshold: float):
+    def __init__(self, category: Category, threshold: float):
         self.category = category
         self.threshold = threshold
+
+__all__ = ["Category", "ContentGuardCheck"]
