@@ -2,6 +2,7 @@ import inspect
 from abc import abstractmethod, ABC
 from typing import Optional, Union, Literal, Callable, Any
 
+import torch
 from transformers import pipeline
 
 from .base_classes import BaseResult
@@ -94,7 +95,8 @@ class Model(ABC):
 
     def load_model(self) -> None:
         if not self.pipeline:
-            self.pipeline = pipeline(self.task, model=self.name)
+            d_type = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            self.pipeline = pipeline(self.task, model=self.name, dtype=d_type)
         return
 
     def eject_model(self) -> None:
