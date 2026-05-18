@@ -4,7 +4,7 @@ from mezzoguard.prompt_guard.categories import Category
 
 class PromptGuardConfig(Config):
 	def __init__(self, mappings: dict[str, Category]):
-		super().__init__()
+		super().__init__("prompt_guard")
 		self.mappings = mappings
 
 	def get_category_for_label(self, label: str) -> Category:
@@ -19,8 +19,8 @@ class PromptGuardConfig(Config):
 					valid.append(label)
 		return valid
 
-MODEL_SERIES = {
-	"Mezzo-Prompt-Guard-v2": PromptGuardConfig(
+CONFIGS = {
+	"safe-unsafe": PromptGuardConfig(
 		mappings={
 			"safe": Category.SAFE,
 			"unsafe": Category.UNSAFE
@@ -29,9 +29,11 @@ MODEL_SERIES = {
 }
 
 MODELS_CONFIG = {
-	"RyanStudio/Mezzo-Prompt-Guard-v2-Large": MODEL_SERIES["Mezzo-Prompt-Guard-v2"],
-	"RyanStudio/Mezzo-Prompt-Guard-v2-Base": MODEL_SERIES["Mezzo-Prompt-Guard-v2"],
-	"RyanStudio/Mezzo-Prompt-Guard-v2-Small": MODEL_SERIES["Mezzo-Prompt-Guard-v2"],
+	"RyanStudio/Mezzo-Prompt-Guard-v2-Large": CONFIGS["safe-unsafe"],
+	"RyanStudio/Mezzo-Prompt-Guard-v2-Base": CONFIGS["safe-unsafe"],
+	"RyanStudio/Mezzo-Prompt-Guard-v2-Small": CONFIGS["safe-unsafe"],
+    "meta-llama/Llama-Prompt-Guard-2-22M": CONFIGS["safe-unsafe"],
+    "meta-llama/Llama-Prompt-Guard-2-86M": CONFIGS["safe-unsafe"],
 }
 
 __all__ = ["PromptGuardConfig", "MODELS_CONFIG"]
