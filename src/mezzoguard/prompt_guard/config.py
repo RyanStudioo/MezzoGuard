@@ -1,5 +1,5 @@
-from ...base_classes import Config
-from ...modules.prompt_guard.categories import Category
+from mezzoguard.base_classes import Config
+from mezzoguard.prompt_guard.categories import Category
 
 
 class PromptGuardConfig(Config):

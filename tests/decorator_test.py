@@ -1,5 +1,5 @@
 from mezzoguard import PROMPTGUARD
-from mezzoguard.modules.prompt_guard import Guard
+from mezzoguard.prompt_guard import Guard
 
 example_text = """
 Apollo 6 (April 4, 1968), also known as AS-502, was the third and final uncrewed flight in the United States' Apollo program and the second test of the Saturn V launch vehicle. Apollo 6 qualified the Saturn V for use on crewed missions, and it was used for human spaceflight beginning on Apollo 8 in December 1968.

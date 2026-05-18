@@ -1,4 +1,4 @@
-from ...base_classes import Config
+from mezzoguard.base_classes import Config
 
 
 class ContentGuardConfig(Config):
