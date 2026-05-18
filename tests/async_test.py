@@ -12,7 +12,7 @@ async def main():
 
     print("=== Testing async_scan ===")
     result = await model.async_scan(text)
-    print(f"Safe: {result.is_safe()}, Violations: {result.violations}")
+    print(f"Scores: {result.scores}")
 
     print("\n=== Testing async_redact ===")
     redacted = await model.async_redact(text)
@@ -29,7 +29,8 @@ async def main():
     results = await asyncio.gather(*[model.async_scan(t) for t in texts])
     t1 = time.time()
     for t, r in zip(texts, results):
-        print(f"  {t[:40]:<42} safe={r.is_safe()}")
+        max_score = max(r.scores.values(), default=0.0)
+        print(f"  {t[:40]:<42} max_score={max_score:.3f}")
     print(f"  Completed {len(texts)} scans in {t1-t0:.2f}s")
 
     print("\n=== Testing async_redact_before_exec decorator ===")

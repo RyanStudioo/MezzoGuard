@@ -2,59 +2,17 @@ import asyncio
 import functools
 import inspect
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Union, Any
+from typing import Callable, Any
 
-from .categories import ContentGuardCheck, Category
+from .categories import Category
 from .result import Result
 from ...errors import UnsafePromptError
 from ...model import GuardModel
 
 
 class Guard(GuardModel):
-    def __init__(self, name: str,
-                 categories: list[ContentGuardCheck]=None
-                 ):
+    def __init__(self, name: str):
         super().__init__(name, task="text-classification")
-        if categories is None:
-            categories = [
-                ContentGuardCheck(Category.DIVISIVE, 0.5),
-                ContentGuardCheck(Category.HATE_SPEECH, 0.5),
-                ContentGuardCheck(Category.SELF_HARM, 0.5),
-                ContentGuardCheck(Category.SEXUAL, 0.5),
-                ContentGuardCheck(Category.TOXIC, 0.5),
-                ContentGuardCheck(Category.VIOLENCE, 0.5),
-            ]
-        self.categories = categories
-
-    def _get_threshold_from_category(self, category: Union[str, Category]) -> float:
-        for cat in self.categories:
-            if isinstance(category, str):
-                category_name = category.upper()
-            elif isinstance(category, Category):
-                category_name = category.value.upper()
-            else:
-                raise
-            if category_name == cat.category.value.upper():
-                 return cat.threshold
-        return 1.0
-
-    def _check_if_violation(self, category: Union[str, Category], confidence: float) -> bool:
-        threshold = self._get_threshold_from_category(category)
-        return confidence >= threshold
-
-    def _check_results_for_violations(self, results: list[dict]) -> dict:
-        violations = {}
-        for result in results:
-            category = result["label"]
-            confidence = result["score"]
-            if self._check_if_violation(category, confidence):
-                violations[category] = True
-            else:
-                violations[category] = False
-        return violations
-
-    def _is_supported_category(self, category: Category) -> bool:
-        return any([i for i in self.categories if i.category == category])
 
     def _from_prediction(self, results: list[list[dict]]):
         label_to_category = {cat.value.lower(): cat for cat in Category}
@@ -68,20 +26,12 @@ class Guard(GuardModel):
                     if category not in max_scores or score > max_scores[category]:
                         max_scores[category] = score
 
-        violations = {}
-        for category, max_score in max_scores.items():
-            if not self._is_supported_category(category):
-                continue
-            violations[category] = max_score >= self._get_threshold_from_category(category)
+        return Result(chunks=results, scores=max_scores)
 
-        return Result(chunks=results, scores=max_scores, violations=violations)
-
-    def _chunk_has_violation(self, chunk_result: list[dict]) -> bool:
+    def _chunk_has_violation(self, chunk_result: list[dict], confidence: float) -> bool:
         for result in chunk_result:
-            label = result.get("label", "")
             score = result.get("score", 0.0)
-            threshold = self._get_threshold_from_category(label)
-            if score >= threshold:
+            if score >= confidence:
                 return True
         return False
 
@@ -102,8 +52,8 @@ class Guard(GuardModel):
             chunk_results = await asyncio.gather(*tasks)
         return self._from_prediction(chunk_results)
 
-
-    def redact(self, text: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]", **kwargs: Any) -> str:
+    def redact(self, text: str, max_seq_length: int = 64, overlap: int = 16,
+               replace: str = "[REDACTED]", confidence: float = 0.5, **kwargs: Any) -> str:
         self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         redacted_chunks = []
@@ -113,7 +63,7 @@ class Guard(GuardModel):
             previous_flagged = False
             for chunk, future in zip(chunks, futures):
                 result = future.result()
-                if self._chunk_has_violation(result):
+                if self._chunk_has_violation(result, confidence):
                     if previous_flagged:
                         continue
                     redacted_chunks.append(replace)
@@ -123,7 +73,8 @@ class Guard(GuardModel):
                     previous_flagged = False
         return " ".join(redacted_chunks)
 
-    async def async_redact(self, text: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]", **kwargs: Any) -> str:
+    async def async_redact(self, text: str, max_seq_length: int = 64, overlap: int = 16,
+                           replace: str = "[REDACTED]", confidence: float = 0.5, **kwargs: Any) -> str:
         await asyncio.to_thread(self.load_model)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         loop = asyncio.get_event_loop()
@@ -134,7 +85,7 @@ class Guard(GuardModel):
         redacted_chunks = []
         previous_flagged = False
         for chunk, result in zip(chunks, chunk_results):
-            if self._chunk_has_violation(result):
+            if self._chunk_has_violation(result, confidence):
                 if previous_flagged:
                     continue
                 redacted_chunks.append(replace)
@@ -197,7 +148,7 @@ class Guard(GuardModel):
 
                     if value is not None:
                         result = await self.async_scan(value, max_seq_length, overlap)
-                        if not result.is_safe():
+                        if any(score >= confidence for score in result.scores.values()):
                             raise UnsafePromptError(confidence)
 
                     return await func(*bound.args, **bound.kwargs)
@@ -213,7 +164,7 @@ class Guard(GuardModel):
 
                     if value is not None:
                         result = self.scan(value, max_seq_length, overlap)
-                        if not result.is_safe():
+                        if any(score >= confidence for score in result.scores.values()):
                             raise UnsafePromptError(confidence)
 
                     return func(*bound.args, **bound.kwargs)
