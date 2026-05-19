@@ -1,3 +1,6 @@
+from typing import Literal
+
+
 class PROMPTGUARD:
 
     # Mezzo Prompt Guard v2 Models
@@ -8,3 +11,26 @@ class PROMPTGUARD:
 class CONTENTGUARD:
 
     MEZZO_CONTENT_GUARD_LARGE_PREVIEW = "RyanStudio/Mezzo-Content-Guard-Large-Preview"
+    
+def get_recommended_model(task: Literal["prompt_guard", "content_guard"], priority: Literal["quality", "speed", "balance"]):
+    if task == "prompt_guard":
+        if priority == "quality":
+            return PROMPTGUARD.MEZZO_PROMPT_GUARD_V2_LARGE
+        elif priority == "speed":
+            return PROMPTGUARD.MEZZO_PROMPT_GUARD_V2_SMALL
+        elif priority == "balance":
+            return PROMPTGUARD.MEZZO_PROMPT_GUARD_V2_BASE
+        return None
+    elif task == "content_guard":
+        return CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE_PREVIEW
+    else:
+        raise ValueError(f"Invalid task: {task}")
+
+def view_available_models() -> dict[str, list[str]]:
+    prompt_guard_models = [value for key, value in vars(PROMPTGUARD).items() if not key.startswith("_")]
+    content_guard_models = [value for key, value in vars(CONTENTGUARD).items() if not key.startswith("_")]
+    
+    return {
+        "prompt_guard": prompt_guard_models,
+        "content_guard": content_guard_models
+    }
