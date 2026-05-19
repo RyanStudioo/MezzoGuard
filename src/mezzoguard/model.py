@@ -15,10 +15,12 @@ class Model(ABC):
             task: Union[
                 Literal["text-classification"]
             ],
+            dtype: Union[torch.dtype, str] = "auto"
     ):
         self.name = name
         self.task = task
         self.pipeline: Optional[pipeline] = None
+        self.dtype = dtype
 
         self.load_model()
 
@@ -95,8 +97,9 @@ class Model(ABC):
 
     def load_model(self) -> None:
         if not self.pipeline:
-            d_type = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            self.pipeline = pipeline(self.task, model=self.name, dtype=d_type)
+            if self.dtype == "auto":
+                self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            self.pipeline = pipeline(self.task, model=self.name, dtype=self.dtype)
         return
 
     def eject_model(self) -> None:
