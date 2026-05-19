@@ -1,5 +1,5 @@
 from .categories import Category
-from ...base_classes import BaseResult
+from mezzoguard.base_classes import BaseResult
 
 
 class Result(BaseResult):

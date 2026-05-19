@@ -2,7 +2,7 @@ import asyncio
 import time
 
 from mezzoguard import CONTENTGUARD
-from mezzoguard.modules.content_guard import Guard
+from mezzoguard.content_guard import Guard
 
 
 async def main():

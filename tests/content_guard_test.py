@@ -1,5 +1,5 @@
 from mezzoguard import CONTENTGUARD
-from mezzoguard.modules.content_guard import Guard
+from mezzoguard.content_guard import Guard
 
 model = Guard(name=CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE_PREVIEW)
 
