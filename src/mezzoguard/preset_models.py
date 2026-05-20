@@ -10,6 +10,10 @@ class PROMPTGUARD:
 
 class CONTENTGUARD:
 
+    MEZZO_CONTENT_GUARD_LARGE = "RyanStudio/Mezzo-Content-Guard-Large"
+    MEZZO_CONTENT_GUARD_BASE = "RyanStudio/Mezzo-Content-Guard-Base"
+    MEZZO_CONTENT_GUARD_SMALL = "RyanStudio/Mezzo-Content-Guard-Small"
+
     MEZZO_CONTENT_GUARD_LARGE_PREVIEW = "RyanStudio/Mezzo-Content-Guard-Large-Preview"
     
 def get_recommended_model(task: Literal["prompt_guard", "content_guard"], priority: Literal["quality", "speed", "balance"]):

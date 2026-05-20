@@ -23,4 +23,4 @@ scan = model.scan(
     overlap=16
 )
 
-print(f"Label: {scan.label}, Confidence: {scan.confidence:.4f}")
+print(f"Scores: {scan.scores}")

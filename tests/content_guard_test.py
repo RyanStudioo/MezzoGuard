@@ -1,7 +1,7 @@
 from mezzoguard import CONTENTGUARD
 from mezzoguard.content_guard import Guard
 
-model = Guard(name=CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE_PREVIEW)
+model = Guard(name=CONTENTGUARD.MEZZO_CONTENT_GUARD_SMALL)
 
 while True:
     user_input = input("Enter a prompt (or 'exit' to quit): ")
@@ -9,3 +9,4 @@ while True:
         break
     scanned = model.scan(user_input)
     print(scanned.scores)
+    print(scanned)

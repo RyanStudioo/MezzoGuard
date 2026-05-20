@@ -6,11 +6,20 @@ class ContentGuardConfig(Config):
     def __init__(self, mappings: dict[str, Category]):
         super().__init__("content_guard")
         self.mappings = mappings
+        self._normalized_mappings = {
+            self._normalize_label(label): category for label, category in mappings.items()
+        }
+
+    def _normalize_label(self, label: str) -> str:
+        return label.strip().lower().replace("_", "-").replace(" ", "-")
 
     def get_category_for_label(self, label: str) -> Category:
-        if label not in self.mappings:
-            raise ValueError(f"Label '{label}' not found in mappings")
-        return self.mappings[label]
+        if label in self.mappings:
+            return self.mappings[label]
+        normalized_label = self._normalize_label(label)
+        if normalized_label in self._normalized_mappings:
+            return self._normalized_mappings[normalized_label]
+        raise ValueError(f"Label '{label}' not found in mappings")
 
     def get_labels_for_category(self, category: Category) -> list[str]:
         valid = []

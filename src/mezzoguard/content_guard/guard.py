@@ -3,9 +3,11 @@ import functools
 import inspect
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Any
+import warnings
 
 from .categories import Category
 from .result import Result
+from .config import MODELS_CONFIG, ContentGuardConfig
 from mezzoguard.errors import UnsafePromptError
 from mezzoguard.model import GuardModel
 
@@ -13,15 +15,23 @@ from mezzoguard.model import GuardModel
 class Guard(GuardModel):
     def __init__(self, name: str):
         super().__init__(name, task="text-classification")
+        self.config: ContentGuardConfig = MODELS_CONFIG[self.name]
+        if not self.config.mappings:
+            warnings.warn(f"No preset config found for model {self.name}. You may need to provide a custom config.")
+
+    def _get_category_for_label(self, label: str) -> Category | None:
+        try:
+            return self.config.get_category_for_label(label)
+        except ValueError:
+            return None
 
     def _from_prediction(self, results: list[list[dict]]):
-        label_to_category = {cat.value.lower(): cat for cat in Category}
         max_scores: dict[Category, float] = {}
         for chunk_result in results:
             for pred in chunk_result:
-                label = pred.get("label", "").lower()
+                label = pred.get("label", "")
                 score = pred.get("score", 0.0)
-                category = label_to_category.get(label)
+                category = self._get_category_for_label(label)
                 if category is not None:
                     if category not in max_scores or score > max_scores[category]:
                         max_scores[category] = score
@@ -30,6 +40,10 @@ class Guard(GuardModel):
 
     def _chunk_has_violation(self, chunk_result: list[dict], confidence: float) -> bool:
         for result in chunk_result:
+            label = result.get("label", "")
+            category = self._get_category_for_label(label)
+            if category is None:
+                continue
             score = result.get("score", 0.0)
             if score >= confidence:
                 return True

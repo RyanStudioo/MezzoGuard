@@ -12,7 +12,6 @@ from .config import MODELS_CONFIG, PromptGuardConfig
 from .categories import Category
 from mezzoguard.errors import UnsafePromptError
 from mezzoguard.model import GuardModel
-from mezzoguard.base_classes import BaseResult
 
 
 class Guard(GuardModel):
@@ -22,24 +21,25 @@ class Guard(GuardModel):
 
         self.config: PromptGuardConfig = MODELS_CONFIG[self.name]
         if not self.config.mappings:
-            warnings.warn(f"No preset config found for model {self.name}. You may need to provide a custom config.")
-
+            warnings.warn(
+                f"No preset config found for model {self.name}. You may need to provide a custom config."
+            )
 
     def _from_prediction(self, chunks: list[dict]) -> Result:
-        if all(self.config.get_category_for_label(c["label"]) == Category.SAFE for c in chunks):
-            label = Category.SAFE
-            confidence = min(c["score"] for c in chunks)
-        else:
-            chunks = [c for c in chunks if self.config.get_category_for_label(c["label"]) == Category.UNSAFE]
-            label = Category.UNSAFE
-            confidence = max(c["score"] for c in chunks)
-        return Result(
-            chunks=chunks,
-            label=label,
-            confidence=confidence
-        )
+        unsafe_score = 0.0
+        safe_category = self.config.safe_category
+        for chunk in chunks:
+            label = chunk.get("label", "")
+            score = chunk.get("score", 0.0)
+            category = self.config.get_category_for_label(label)
+            if category != safe_category and score > unsafe_score:
+                unsafe_score = score
+        scores = {
+            Category.UNSAFE: unsafe_score,
+        }
+        return Result(chunks=chunks, scores=scores)
 
-    def scan(self, text: str, max_seq_length: int=64, overlap: int=16) -> Result:
+    def scan(self, text: str, max_seq_length: int = 64, overlap: int = 16) -> Result:
         self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         results = []
@@ -48,16 +48,28 @@ class Guard(GuardModel):
             results = [future.result() for future in futures]
         return self._from_prediction(results)
 
-    async def async_scan(self, text: str, max_seq_length: int = 64, overlap: int = 16) -> Result:
+    async def async_scan(
+        self, text: str, max_seq_length: int = 64, overlap: int = 16
+    ) -> Result:
         await asyncio.to_thread(self.load_model)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as executor:
-            tasks = [loop.run_in_executor(executor, self._predict_tokenized_text, chunk) for chunk in chunks]
+            tasks = [
+                loop.run_in_executor(executor, self._predict_tokenized_text, chunk)
+                for chunk in chunks
+            ]
             results = await asyncio.gather(*tasks)
         return self._from_prediction(results)
 
-    def redact(self, text: str, max_seq_length: int=64, overlap: int=16, replace: str="[REDACTED]", confidence: float=0.5) -> str:
+    def redact(
+        self,
+        text: str,
+        max_seq_length: int = 64,
+        overlap: int = 16,
+        replace: str = "[REDACTED]",
+        confidence: float = 0.5,
+    ) -> str:
         self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         redacted_chunks = []
@@ -67,7 +79,10 @@ class Guard(GuardModel):
             previous_unsafe = False
             for chunk, future in zip(chunks, futures):
                 result = future.result()
-                if self.config.get_category_for_label(result["label"]) == Category.UNSAFE and result["score"] >= confidence:
+                if (
+                    self.config.get_category_for_label(result["label"]) == Category.UNSAFE
+                    and result["score"] >= confidence
+                ):
                     if previous_unsafe:
                         continue
                     redacted_chunks.append(replace)
@@ -77,19 +92,31 @@ class Guard(GuardModel):
                     previous_unsafe = False
         return " ".join(redacted_chunks)
 
-    async def async_redact(self, text: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
-                           confidence: float = 0.5) -> str:
+    async def async_redact(
+        self,
+        text: str,
+        max_seq_length: int = 64,
+        overlap: int = 16,
+        replace: str = "[REDACTED]",
+        confidence: float = 0.5,
+    ) -> str:
         await asyncio.to_thread(self.load_model)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as executor:
-            tasks = [loop.run_in_executor(executor, self._predict_tokenized_text, chunk) for chunk in chunks]
+            tasks = [
+                loop.run_in_executor(executor, self._predict_tokenized_text, chunk)
+                for chunk in chunks
+            ]
             chunk_results = await asyncio.gather(*tasks)
 
         redacted_chunks = []
         previous_unsafe = False
         for chunk, result in zip(chunks, chunk_results):
-            if self.config.get_category_for_label(result["label"]) == Category.UNSAFE and result["score"] >= confidence:
+            if (
+                self.config.get_category_for_label(result["label"]) == Category.UNSAFE
+                and result["score"] >= confidence
+            ):
                 if previous_unsafe:
                     continue
                 redacted_chunks.append(replace)
@@ -99,8 +126,14 @@ class Guard(GuardModel):
                 previous_unsafe = False
         return " ".join(redacted_chunks)
 
-    def redact_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
-                           confidence: float = 0.5) -> Callable:
+    def redact_before_exec(
+        self,
+        param: str,
+        max_seq_length: int = 64,
+        overlap: int = 16,
+        replace: str = "[REDACTED]",
+        confidence: float = 0.5,
+    ) -> Callable:
         self.load_model()
 
         def decorator(func):
@@ -114,7 +147,9 @@ class Guard(GuardModel):
                     value = bound.arguments.get(param)
 
                     if value is not None:
-                        redacted = await self.async_redact(value, max_seq_length, overlap, replace, confidence)
+                        redacted = await self.async_redact(
+                            value, max_seq_length, overlap, replace, confidence
+                        )
                         bound.arguments[param] = redacted
 
                     return await func(*bound.args, **bound.kwargs)
@@ -137,7 +172,9 @@ class Guard(GuardModel):
 
         return decorator
 
-    def scan_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16, confidence: float=0.5) -> Callable:
+    def scan_before_exec(
+        self, param: str, max_seq_length: int = 64, overlap: int = 16, confidence: float = 0.5
+    ) -> Callable:
         self.load_model()
 
         def decorator(func):
@@ -152,8 +189,9 @@ class Guard(GuardModel):
 
                     if value is not None:
                         result = await self.async_scan(value, max_seq_length, overlap)
-                        if result.label == Category.UNSAFE and result.confidence >= confidence:
-                            raise UnsafePromptError(result.confidence)
+                        unsafe_score = result.scores.get(Category.UNSAFE, 0.0)
+                        if unsafe_score >= confidence:
+                            raise UnsafePromptError(unsafe_score)
 
                     return await func(*bound.args, **bound.kwargs)
                 return async_wrapper
@@ -168,8 +206,9 @@ class Guard(GuardModel):
 
                     if value is not None:
                         result = self.scan(value, max_seq_length, overlap)
-                        if result.label == Category.UNSAFE and result.confidence >= confidence:
-                            raise UnsafePromptError(result.confidence)
+                        unsafe_score = result.scores.get(Category.UNSAFE, 0.0)
+                        if unsafe_score >= confidence:
+                            raise UnsafePromptError(unsafe_score)
 
                     return func(*bound.args, **bound.kwargs)
                 return wrapper
