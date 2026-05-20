@@ -17,7 +17,6 @@ from mezzoguard.model import GuardModel
 class Guard(GuardModel):
     def __init__(self, name: str):
         super().__init__(name=name, task="text-classification")
-        self.pipeline: Optional[pipeline] = None
 
         self.config: PromptGuardConfig = MODELS_CONFIG[self.name]
         if not self.config.mappings:
