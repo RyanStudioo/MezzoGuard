@@ -10,6 +10,7 @@ from transformers import pipeline
 from . import Result
 from .config import MODELS_CONFIG, PromptGuardConfig
 from .categories import Category
+from .policy import PromptPolicy
 from mezzoguard.errors import UnsafePromptError
 from mezzoguard.model import GuardModel
 
@@ -37,6 +38,17 @@ class Guard(GuardModel):
             Category.UNSAFE: unsafe_score,
         }
         return Result(chunks=chunks, scores=scores)
+
+    def _resolve_redaction_policy(
+        self, policy: Optional[PromptPolicy], confidence: float
+    ) -> PromptPolicy:
+        if policy is not None:
+            return policy
+        return PromptPolicy().add_threshold(Category.UNSAFE, confidence)
+
+    def _chunk_matches_policy(self, chunk_result: dict, policy: PromptPolicy) -> bool:
+        result = self._from_prediction([chunk_result])
+        return policy.evaluate(result)
 
     def scan(self, text: str, max_seq_length: int = 64, overlap: int = 16) -> Result:
         self.load_model()
@@ -67,9 +79,11 @@ class Guard(GuardModel):
         max_seq_length: int = 64,
         overlap: int = 16,
         replace: str = "[REDACTED]",
+        policy: Optional[PromptPolicy] = None,
         confidence: float = 0.5,
     ) -> str:
         self.load_model()
+        policy = self._resolve_redaction_policy(policy, confidence)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         redacted_chunks = []
         with ThreadPoolExecutor() as executor:
@@ -78,10 +92,7 @@ class Guard(GuardModel):
             previous_unsafe = False
             for chunk, future in zip(chunks, futures):
                 result = future.result()
-                if (
-                    self.config.get_category_for_label(result["label"]) == Category.UNSAFE
-                    and result["score"] >= confidence
-                ):
+                if self._chunk_matches_policy(result, policy):
                     if previous_unsafe:
                         continue
                     redacted_chunks.append(replace)
@@ -97,9 +108,11 @@ class Guard(GuardModel):
         max_seq_length: int = 64,
         overlap: int = 16,
         replace: str = "[REDACTED]",
+        policy: Optional[PromptPolicy] = None,
         confidence: float = 0.5,
     ) -> str:
         await asyncio.to_thread(self.load_model)
+        policy = self._resolve_redaction_policy(policy, confidence)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as executor:
@@ -112,10 +125,7 @@ class Guard(GuardModel):
         redacted_chunks = []
         previous_unsafe = False
         for chunk, result in zip(chunks, chunk_results):
-            if (
-                self.config.get_category_for_label(result["label"]) == Category.UNSAFE
-                and result["score"] >= confidence
-            ):
+            if self._chunk_matches_policy(result, policy):
                 if previous_unsafe:
                     continue
                 redacted_chunks.append(replace)
@@ -131,6 +141,7 @@ class Guard(GuardModel):
         max_seq_length: int = 64,
         overlap: int = 16,
         replace: str = "[REDACTED]",
+        policy: Optional[PromptPolicy] = None,
         confidence: float = 0.5,
     ) -> Callable:
         self.load_model()
@@ -147,7 +158,12 @@ class Guard(GuardModel):
 
                     if value is not None:
                         redacted = await self.async_redact(
-                            value, max_seq_length, overlap, replace, confidence
+                            value,
+                            max_seq_length,
+                            overlap,
+                            replace,
+                            policy=policy,
+                            confidence=confidence,
                         )
                         bound.arguments[param] = redacted
 
@@ -163,7 +179,14 @@ class Guard(GuardModel):
                     value = bound.arguments.get(param)
 
                     if value is not None:
-                        redacted = self.redact(value, max_seq_length, overlap, replace, confidence)
+                        redacted = self.redact(
+                            value,
+                            max_seq_length,
+                            overlap,
+                            replace,
+                            policy=policy,
+                            confidence=confidence,
+                        )
                         bound.arguments[param] = redacted
 
                     return func(*bound.args, **bound.kwargs)
