@@ -14,6 +14,6 @@ class ContentPolicy(BasePolicy):
             threshold = self.get_threshold(key)
             if threshold is None:
                 continue
-            if value >= self.mapping[key]:
+            if value >= threshold:
                 return True
         return False

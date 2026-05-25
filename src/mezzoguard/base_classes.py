@@ -15,16 +15,16 @@ class BaseResult:
 
 class BasePolicy(ABC):
     def __init__(self):
-        self.mapping = {}
+        self._mapping = {}
 
     def add_threshold(self, category: str, threshold: float) -> Self:
-        self.mapping[category] = threshold
+        self._mapping[category] = threshold
         return self
 
     def get_threshold(self, category: str) -> float:
-        if category not in self.mapping:
+        if category not in self._mapping:
             return None
-        return self.mapping[category]
+        return self._mapping[category]
 
     @abstractmethod
     def evaluate(self, result: BaseResult, **kwargs) -> bool:
