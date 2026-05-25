@@ -1,8 +1,8 @@
-from ..base_classes import Config
+from ..base_classes import BaseConfig
 from .categories import Category
 
 
-class ContentGuardConfig(Config):
+class ContentGuardConfig(BaseConfig):
     def __init__(self, mappings: dict[str, Category]):
         super().__init__("content_guard")
         self.mappings = mappings

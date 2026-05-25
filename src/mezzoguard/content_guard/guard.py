@@ -9,7 +9,7 @@ from .categories import Category
 from .result import Result
 from .config import MODELS_CONFIG, ContentGuardConfig
 from .policy import ContentPolicy
-from ..errors import UnsafePromptError
+from ..errors import UnsafePromptError, UnsafeContentError
 from ..model import GuardModel
 
 
@@ -186,9 +186,13 @@ class Guard(GuardModel):
                     value = bound.arguments.get(param)
 
                     if value is not None:
+                        violated = []
                         result = await self.async_scan(value, max_seq_length, overlap)
-                        if any(score >= confidence for score in result.scores.values()):
-                            raise UnsafePromptError(confidence)
+                        for cat, score in result.scores.items():
+                            if score > confidence:
+                                violated.append({cat.value: score})
+                        if violated:
+                            raise UnsafeContentError(violated)
 
                     return await func(*bound.args, **bound.kwargs)
                 return async_wrapper
@@ -202,9 +206,13 @@ class Guard(GuardModel):
                     value = bound.arguments.get(param)
 
                     if value is not None:
+                        violated = []
                         result = self.scan(value, max_seq_length, overlap)
-                        if any(score >= confidence for score in result.scores.values()):
-                            raise UnsafePromptError(confidence)
+                        for cat, score in result.scores.items():
+                            if score > confidence:
+                                violated.append({cat.value: score})
+                        if violated:
+                            raise UnsafeContentError(violated)
 
                     return func(*bound.args, **bound.kwargs)
                 return wrapper

@@ -1,8 +1,8 @@
-from ..base_classes import Config
+from ..base_classes import BaseConfig
 from .categories import Category
 
 
-class PromptGuardConfig(Config):
+class PromptGuardConfig(BaseConfig):
     def __init__(
         self, mappings: dict[str, Category], safe_category: Category = Category.SAFE
     ):
