@@ -9,11 +9,12 @@ from .categories import Category
 from .result import Result
 from .config import MODELS_CONFIG, ContentGuardConfig
 from .policy import ContentPolicy
-from ..errors import UnsafePromptError, UnsafeContentError
+from ..errors import UnsafeContentError
 from ..model import GuardModel
 
 
 class Guard(GuardModel):
+    """A Content Guard Model"""
     def __init__(self, name: str):
         super().__init__(name, task="text-classification")
         self.config: ContentGuardConfig = MODELS_CONFIG[self.name]

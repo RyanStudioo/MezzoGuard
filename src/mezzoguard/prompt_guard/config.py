@@ -3,6 +3,7 @@ from .categories import Category
 
 
 class PromptGuardConfig(BaseConfig):
+    """Configurations for Prompt Guard"""
     def __init__(
         self, mappings: dict[str, Category], safe_category: Category = Category.SAFE
     ):

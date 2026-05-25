@@ -3,6 +3,7 @@ from .categories import Category
 
 
 class ContentGuardConfig(BaseConfig):
+    """Configurations for Content Guard"""
     def __init__(self, mappings: dict[str, Category]):
         super().__init__("content_guard")
         self.mappings = mappings

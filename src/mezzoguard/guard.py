@@ -6,6 +6,7 @@ from .prompt_guard import guard as pg
 
 
 class AutoGuard:
+    """For Future release"""
     def __init__(
             self,
             prompt_guard: pg.Guard=pg.Guard(PROMPTGUARD.MEZZO_PROMPT_GUARD_V2_BASE),

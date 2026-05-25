@@ -9,6 +9,7 @@ from .base_classes import BaseResult
 
 
 class Model(ABC):
+    """Base Model Class"""
     def __init__(
             self,
             name: str,
@@ -111,6 +112,7 @@ class Model(ABC):
 
 
 class GuardModel(Model):
+    """Base Guard Model class"""
     def __init__(
             self,
             name: str,

@@ -8,9 +8,5 @@ class Category(Enum):
     TOXIC = "toxic"
     VIOLENCE = "violence"
 
-class ContentGuardCheck:
-    def __init__(self, category: Category, threshold: float):
-        self.category = category
-        self.threshold = threshold
 
-__all__ = ["Category", "ContentGuardCheck"]
+__all__ = ["Category"]
