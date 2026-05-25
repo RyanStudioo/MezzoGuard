@@ -4,7 +4,7 @@ from typing import Literal, Self
 
 
 class Config:
-    def __init__(self, model_type: Literal["prompt_guard", "content_guard"]):\
+    def __init__(self, model_type: Literal["prompt_guard", "content_guard"]):
         self.model_type = model_type
 
 
@@ -21,7 +21,7 @@ class BasePolicy(ABC):
         self.mapping[category] = threshold
         return self
 
-    def get_threshold(self, category: str):
+    def get_threshold(self, category: str) -> float:
         if category not in self.mapping:
             return None
         return self.mapping[category]
