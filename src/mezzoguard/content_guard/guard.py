@@ -64,7 +64,6 @@ class Guard(GuardModel):
         return policy.evaluate(Result(chunks=[chunk_result], scores=scores))
 
     def scan(self, text: str, max_seq_length: int = 64, overlap: int = 8) -> Result:
-        self.load_model()
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         with ThreadPoolExecutor() as executor:
             futures = [executor.submit(self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
@@ -72,7 +71,6 @@ class Guard(GuardModel):
         return self._from_prediction(chunk_results)
 
     async def async_scan(self, text: str, max_seq_length: int = 64, overlap: int = 8) -> Result:
-        await asyncio.to_thread(self.load_model)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as executor:
@@ -82,7 +80,6 @@ class Guard(GuardModel):
 
     def redact(self, text: str, max_seq_length: int = 64, overlap: int = 16,
                replace: str = "[REDACTED]", policy: ContentPolicy | None = None, confidence: float = 0.5, **kwargs: Any) -> str:
-        self.load_model()
         policy = self._resolve_redaction_policy(policy, confidence)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         redacted_chunks = []
@@ -104,7 +101,6 @@ class Guard(GuardModel):
 
     async def async_redact(self, text: str, max_seq_length: int = 64, overlap: int = 16,
                            replace: str = "[REDACTED]", policy: ContentPolicy | None = None, confidence: float = 0.5, **kwargs: Any) -> str:
-        await asyncio.to_thread(self.load_model)
         policy = self._resolve_redaction_policy(policy, confidence)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         loop = asyncio.get_event_loop()
@@ -127,7 +123,6 @@ class Guard(GuardModel):
 
     def redact_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
                            policy: ContentPolicy | None = None, confidence: float = 0.5, **kwargs: Any) -> Callable:
-        self.load_model()
 
         def decorator(func):
             if asyncio.iscoroutinefunction(func):
@@ -179,7 +174,6 @@ class Guard(GuardModel):
 
     def scan_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16,
                          confidence: float = 0.5) -> Callable:
-        self.load_model()
 
         def decorator(func):
             if asyncio.iscoroutinefunction(func):
