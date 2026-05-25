@@ -26,7 +26,13 @@ def get_recommended_model(task: Literal["prompt_guard", "content_guard"], priori
             return PROMPTGUARD.MEZZO_PROMPT_GUARD_V2_BASE
         return None
     elif task == "content_guard":
-        return CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE_PREVIEW
+        if priority == "quality":
+            return CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE
+        elif priority == "speed":
+            return CONTENTGUARD.MEZZO_CONTENT_GUARD_SMALL
+        elif priority == "balance":
+            return CONTENTGUARD.MEZZO_CONTENT_GUARD_BASE
+        return None
     else:
         raise ValueError(f"Invalid task: {task}")
 

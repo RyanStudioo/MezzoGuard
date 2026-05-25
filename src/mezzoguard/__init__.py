@@ -1,7 +1,10 @@
 import transformers
 transformers.logging.set_verbosity_error()
 
-from .preset_models import PROMPTGUARD, CONTENTGUARD
+from .preset_models import PROMPTGUARD, CONTENTGUARD, get_recommended_model, view_available_models
 from . import content_guard, prompt_guard
 
-__all__ = ["PROMPTGUARD", "CONTENTGUARD", "prompt_guard", "content_guard",]
+__all__ = [
+    "PROMPTGUARD", "CONTENTGUARD", "get_recommended_model", "view_available_models",
+    "prompt_guard", "content_guard"
+]

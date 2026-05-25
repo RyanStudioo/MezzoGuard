@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mezzo-guard"
 version = "0.1.0-alpha.2"
-description = "Mezzo Guard is a Python SDK designed to add a protective layer to LLM applications attacks such as jailbreaking and prompt injection, powered by custom-trained models adapted to recent trends. Mezzo Guard can be easily added into your pipeline, offering great protection with little effort."
+description = "Mezzo Guard is a Python SDK designed to provide AI-based content moderation and security for applications. It offers a suite of tools to help developers safeguard their applications against harmful content, prompt injections, and other security threats with a simple to use API."
 requires-python = ">=3.11"
 dependencies = [
     "transformers",
