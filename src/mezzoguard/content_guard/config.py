@@ -1,5 +1,5 @@
-from mezzoguard.base_classes import Config
-from mezzoguard.content_guard import Category
+from ..base_classes import Config
+from .categories import Category
 
 
 class ContentGuardConfig(Config):

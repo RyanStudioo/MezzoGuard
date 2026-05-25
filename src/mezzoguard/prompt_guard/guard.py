@@ -11,8 +11,8 @@ from . import Result
 from .config import MODELS_CONFIG, PromptGuardConfig
 from .categories import Category
 from .policy import PromptPolicy
-from mezzoguard.errors import UnsafePromptError
-from mezzoguard.model import GuardModel
+from ..errors import UnsafePromptError
+from ..model import GuardModel
 
 
 class Guard(GuardModel):

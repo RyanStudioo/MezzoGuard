@@ -9,8 +9,8 @@ from .categories import Category
 from .result import Result
 from .config import MODELS_CONFIG, ContentGuardConfig
 from .policy import ContentPolicy
-from mezzoguard.errors import UnsafePromptError
-from mezzoguard.model import GuardModel
+from ..errors import UnsafePromptError
+from ..model import GuardModel
 
 
 class Guard(GuardModel):

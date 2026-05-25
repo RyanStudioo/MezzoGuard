@@ -1,4 +1,4 @@
-from mezzoguard.base_classes import BasePolicy, BaseResult
+from ..base_classes import BasePolicy
 from .result import Result
 
 
