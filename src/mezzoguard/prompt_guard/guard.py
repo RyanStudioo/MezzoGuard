@@ -49,7 +49,7 @@ class Guard(GuardModel):
 
     def _chunk_matches_policy(self, chunk_result: dict, policy: PromptPolicy) -> bool:
         result = self._from_prediction([chunk_result])
-        return policy.evaluate(result)
+        return bool(policy.evaluate(result))
 
     def scan(self, text: str, max_seq_length: int = 64, overlap: int = 16) -> Result:
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)

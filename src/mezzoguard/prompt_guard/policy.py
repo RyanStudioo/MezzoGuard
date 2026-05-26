@@ -1,5 +1,5 @@
+from ..base_classes import BasePolicy, PolicyResult
 from .categories import Category
-from ..base_classes import BasePolicy
 from .result import Result
 
 
@@ -10,11 +10,9 @@ class PromptPolicy(BasePolicy):
         super().add_threshold(category, threshold)
         return self
 
-    def evaluate(self, result: Result, **kwargs) -> bool:
+    def evaluate(self, result: Result, **kwargs) -> PolicyResult:
+        categories: dict[Category, bool] = {}
         for key, value in result.scores.items():
             threshold = self.get_threshold(key)
-            if threshold is None:
-                continue
-            if value >= threshold:
-                return True
-        return False
+            categories[key] = value < threshold
+        return PolicyResult(categories=categories)

@@ -62,7 +62,8 @@ class Guard(GuardModel):
 
     def _chunk_matches_policy(self, chunk_result: list[dict], policy: ContentPolicy) -> bool:
         scores = self._scores_from_chunk(chunk_result)
-        return policy.evaluate(Result(chunks=[chunk_result], scores=scores))
+        result = policy.evaluate(Result(chunks=[chunk_result], scores=scores))
+        return bool(result)
 
     def scan(self, text: str, max_seq_length: int = 64, overlap: int = 8) -> Result:
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)

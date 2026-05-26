@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from enum import Enum
 from typing import Literal, Self, Any
 
 
@@ -14,6 +15,26 @@ class BaseResult:
     """Base Result class"""
     pass
 
+class PolicyResult(BaseResult):
+    def __init__(self, categories: dict[Enum, bool]):
+        self.categories = categories
+
+    def __bool__(self) -> bool:
+        return self.is_unsafe()
+
+    def __repr__(self) -> str:
+        safe = [k.name for k, v in self.categories.items() if v]
+        violated = [k.name for k, v in self.categories.items() if not v]
+        return f"PolicyResult(safe={safe}, violated={violated})"
+
+    def is_safe(self) -> bool:
+        return all(self.categories.values())
+
+    def is_unsafe(self) -> bool:
+        return not all(self.categories.values())
+
+    def get_violated_categories(self) -> list[Enum]:
+        return [category for category, is_safe in self.categories.items() if not is_safe]
 
 class BasePolicy(ABC):
     """Base Policy class"""
@@ -28,10 +49,10 @@ class BasePolicy(ABC):
     def get_threshold(self, category: Any) -> float:
         """Get the threshold of a category"""
         if category not in self._mapping:
-            return None
+            return 0.0
         return self._mapping[category]
 
     @abstractmethod
-    def evaluate(self, result: BaseResult, **kwargs) -> bool:
+    def evaluate(self, result: BaseResult, **kwargs) -> PolicyResult:
         """Evaluate a result from a guard scan"""
         raise NotImplementedError
