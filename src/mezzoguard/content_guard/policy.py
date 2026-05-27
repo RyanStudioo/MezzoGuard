@@ -14,5 +14,5 @@ class ContentPolicy(BasePolicy):
         categories: dict[Category, bool] = {}
         for key, value in result.scores.items():
             threshold = self.get_threshold(key)
-            categories[key] = value < threshold
+            categories[key] = value >= threshold
         return PolicyResult(categories=categories)

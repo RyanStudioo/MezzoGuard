@@ -23,18 +23,18 @@ class PolicyResult(BaseResult):
         return self.is_unsafe()
 
     def __repr__(self) -> str:
-        safe = [k.name for k, v in self.categories.items() if v]
-        violated = [k.name for k, v in self.categories.items() if not v]
+        violated = [k.name for k, v in self.categories.items() if v]
+        safe = [k.name for k, v in self.categories.items() if not v]
         return f"PolicyResult(safe={safe}, violated={violated})"
 
     def is_safe(self) -> bool:
-        return all(self.categories.values())
+        return not any(self.categories.values())
 
     def is_unsafe(self) -> bool:
-        return not all(self.categories.values())
+        return any(self.categories.values())
 
     def get_violated_categories(self) -> list[Enum]:
-        return [category for category, is_safe in self.categories.items() if not is_safe]
+        return [category for category, violated in self.categories.items() if violated]
 
 class BasePolicy(ABC):
     """Base Policy class"""

@@ -6,9 +6,9 @@ class Result(BaseResult):
         self._chunks = chunks
         self.scores = scores
 
-    def is_safe(self, threshold: float = 0.5) -> bool:
+    def is_unsafe(self, threshold: float = 0.5) -> bool:
         unsafe_score = self.scores.get(Category.UNSAFE, 0.0)
-        return unsafe_score < threshold
+        return unsafe_score >= threshold
 
 
 __all__ = ["Result"]
