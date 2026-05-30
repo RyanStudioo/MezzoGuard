@@ -17,8 +17,8 @@ class Guard(GuardModel):
     """A Content Guard Model"""
     def __init__(self, name: str):
         super().__init__(name, task="text-classification")
-        self.config: ContentGuardConfig = MODELS_CONFIG[self.name]
-        if not self.config.mappings:
+        self.config: ContentGuardConfig = MODELS_CONFIG.get(name, None)
+        if not self.config:
             warnings.warn(f"No preset config found for model {self.name}. You may need to provide a custom config.")
 
     def _get_category_for_label(self, label: str) -> Category | None:

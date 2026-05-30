@@ -20,8 +20,8 @@ class Guard(GuardModel):
     def __init__(self, name: str):
         super().__init__(name=name, task="text-classification")
 
-        self.config: PromptGuardConfig = MODELS_CONFIG[self.name]
-        if not self.config.mappings:
+        self.config: PromptGuardConfig = MODELS_CONFIG.get(name, None)
+        if not self.config:
             warnings.warn(
                 f"No preset config found for model {self.name}. You may need to provide a custom config."
             )
