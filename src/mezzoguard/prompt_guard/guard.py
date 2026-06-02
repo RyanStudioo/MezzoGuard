@@ -17,8 +17,8 @@ from ..model import GuardModel
 
 class Guard(GuardModel):
     """A Prompt Guard Model"""
-    def __init__(self, name: str):
-        super().__init__(name=name, task="text-classification")
+    def __init__(self, name: str, **kwargs):
+        super().__init__(name=name, task="text-classification", **kwargs)
 
         self.config: PromptGuardConfig = MODELS_CONFIG.get(name, None)
         if not self.config:

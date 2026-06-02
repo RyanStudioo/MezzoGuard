@@ -15,8 +15,8 @@ from ..model import GuardModel
 
 class Guard(GuardModel):
     """A Content Guard Model"""
-    def __init__(self, name: str):
-        super().__init__(name, task="text-classification")
+    def __init__(self, name: str, **kwargs: Any):
+        super().__init__(name, task="text-classification", **kwargs)
         self.config: ContentGuardConfig = MODELS_CONFIG.get(name, None)
         if not self.config:
             warnings.warn(f"No preset config found for model {self.name}. You may need to provide a custom config.")

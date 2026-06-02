@@ -16,12 +16,16 @@ class Model(ABC):
             task: Union[
                 Literal["text-classification"]
             ],
-            dtype: Union[torch.dtype, str] = "auto"
+            dtype: Union[torch.dtype, str] = "auto",
+            torch_compile: bool=False,
+            compile_mode: str="default"
     ):
         self.name = name
         self.task = task
         self.pipeline: Optional[pipeline] = None
         self.dtype = dtype
+        self.torch_compile = torch_compile
+        self.compile_mode = compile_mode
 
         self.load_model()
 
@@ -100,7 +104,15 @@ class Model(ABC):
         if not self.pipeline:
             if self.dtype == "auto":
                 self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            self.pipeline = pipeline(self.task, model=self.name, dtype=self.dtype)
+            if self.torch_compile:
+                from transformers import AutoTokenizer
+                tokenizer = AutoTokenizer.from_pretrained(self.name)
+                from transformers import AutoModelForSequenceClassification
+                model = AutoModelForSequenceClassification.from_pretrained(self.name, torch_dtype=self.dtype)
+                model.forward = torch.compile(model.forward, mode=self.compile_mode, dynamic=True)
+                self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype)
+            else:
+                self.pipeline = pipeline(self.task, model=self.name, dtype=self.dtype)
         return
 
     def eject_model(self) -> None:
@@ -118,9 +130,10 @@ class GuardModel(Model):
             name: str,
             task: Union[
                      Literal["text-classification"]
-            ]
+            ],
+            **kwargs
                  ):
-        super().__init__(name=name, task=task)
+        super().__init__(name=name, task=task, **kwargs)
 
     @abstractmethod
     def scan(
