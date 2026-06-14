@@ -13,6 +13,7 @@ from .categories import Category
 from .policy import PromptPolicy
 from ..errors import UnsafePromptError
 from ..model import GuardModel
+from ..base_classes import ModelConfig
 
 
 class Guard(GuardModel):
@@ -20,10 +21,46 @@ class Guard(GuardModel):
     def __init__(self, name: str, **kwargs):
         super().__init__(name=name, task="text-classification", **kwargs)
 
+        self.model_config: ModelConfig | None = None
+
+        # Try loading from JSON file first
+        self.model_config = ModelConfig.from_model_name(name)
+
+        # Fall back to hardcoded MODELS_CONFIG
         self.config: PromptGuardConfig = MODELS_CONFIG.get(name, None)
+
+        # If we loaded a JSON config, build a PromptGuardConfig from it
+        if self.model_config and not self.config:
+            from .._types import Category as BaseCategory
+            mappings = {}
+            for label, cat_str in self.model_config.mappings.items():
+                try:
+                    cat = Category(cat_str)
+                except ValueError:
+                    cat = BaseCategory(cat_str)
+                mappings[label] = cat
+
+            safe_cat = None
+            if self.model_config.safe_category:
+                try:
+                    safe_cat = Category(self.model_config.safe_category)
+                except ValueError:
+                    safe_cat = BaseCategory(self.model_config.safe_category)
+
+            self.config = PromptGuardConfig(mappings=mappings, safe_category=safe_cat or Category.SAFE)
+
         if not self.config:
             warnings.warn(
                 f"No preset config found for model {self.name}. You may need to provide a custom config."
+            )
+
+        # Check README.md for deprecation (works even without .mezzoguard file)
+        readme_deprecation = ModelConfig.get_deprecation_from_readme(name)
+        if readme_deprecation:
+            warnings.warn(
+                readme_deprecation["deprecated_message"],
+                DeprecationWarning,
+                stacklevel=2,
             )
 
     def _from_prediction(self, chunks: list[dict]) -> Result:

@@ -11,15 +11,46 @@ from .config import MODELS_CONFIG, ContentGuardConfig
 from .policy import ContentPolicy
 from ..errors import UnsafeContentError
 from ..model import GuardModel
+from ..base_classes import ModelConfig
 
 
 class Guard(GuardModel):
     """A Content Guard Model"""
     def __init__(self, name: str, **kwargs: Any):
         super().__init__(name, task="text-classification", **kwargs)
+
+        self.model_config: ModelConfig | None = None
+
+        # Try loading from JSON file first
+        self.model_config = ModelConfig.from_model_name(name)
+
+        # Fall back to hardcoded MODELS_CONFIG
         self.config: ContentGuardConfig = MODELS_CONFIG.get(name, None)
+
+        # If we loaded a JSON config, build a ContentGuardConfig from it
+        if self.model_config and not self.config:
+            from .._types import Category as BaseCategory
+            mappings = {}
+            for label, cat_str in self.model_config.mappings.items():
+                try:
+                    cat = Category(cat_str)
+                except ValueError:
+                    cat = BaseCategory(cat_str)
+                mappings[label] = cat
+
+            self.config = ContentGuardConfig(mappings=mappings)
+
         if not self.config:
             warnings.warn(f"No preset config found for model {self.name}. You may need to provide a custom config.")
+
+        # Check README.md for deprecation (works even without .mezzoguard file)
+        readme_deprecation = ModelConfig.get_deprecation_from_readme(name)
+        if readme_deprecation:
+            warnings.warn(
+                readme_deprecation["deprecated_message"],
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
     def _get_category_for_label(self, label: str) -> Category | None:
         try:
