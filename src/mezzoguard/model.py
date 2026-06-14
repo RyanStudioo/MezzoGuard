@@ -5,7 +5,7 @@ from typing import Optional, Union, Literal, Callable, Any
 import torch
 from transformers import pipeline
 
-from .base_classes import BaseResult
+from ._types import BaseResult
 
 
 class Model(ABC):

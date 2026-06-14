@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from enum import Enum
 from typing import Literal, Self, Any
+
+from ._types import BaseResult, Category
 
 
 class BaseConfig:
@@ -10,31 +10,28 @@ class BaseConfig:
         self.model_type = model_type
 
 
-@dataclass
-class BaseResult:
-    """Base Result class"""
-    pass
-
 class PolicyResult(BaseResult):
-    def __init__(self, categories: dict[Enum, bool]):
+    def __init__(self, scores: dict[Category, float], violated: dict[Category, bool], categories: list[Category]):
+        self.scores = scores
+        self.violated = violated
         self.categories = categories
 
     def __bool__(self) -> bool:
         return self.is_unsafe()
 
     def __repr__(self) -> str:
-        violated = [k.name for k, v in self.categories.items() if v]
-        safe = [k.name for k, v in self.categories.items() if not v]
+        violated = [k.name for k, v in self.violated.items() if v]
+        safe = [k.name for k, v in self.violated.items() if not v]
         return f"PolicyResult(safe={safe}, violated={violated})"
 
     def is_safe(self) -> bool:
-        return not any(self.categories.values())
+        return not any(self.violated.values())
 
     def is_unsafe(self) -> bool:
-        return any(self.categories.values())
+        return any(self.violated.values())
 
-    def get_violated_categories(self) -> list[Enum]:
-        return [category for category, violated in self.categories.items() if violated]
+    def get_violated_categories(self) -> list[Category]:
+        return [category for category, violated in self.violated.items() if violated]
 
 class BasePolicy(ABC):
     """Base Policy class"""

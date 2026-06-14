@@ -114,22 +114,34 @@ def test_policy_result_manual():
     from mezzoguard.base_classes import PolicyResult
 
     # Empty categories
-    pr = PolicyResult({})
+    pr = PolicyResult(scores={}, violated={}, categories=[])
     print(f"Empty: {pr}")
     print(f"  is_safe: {pr.is_safe()}, is_unsafe: {pr.is_unsafe()}, bool: {bool(pr)}")
 
     # All violated
-    pr = PolicyResult({ContentCategory.VIOLENCE: True})
+    pr = PolicyResult(
+        scores={ContentCategory.VIOLENCE: 0.9},
+        violated={ContentCategory.VIOLENCE: True},
+        categories=[ContentCategory.VIOLENCE]
+    )
     assert pr.is_unsafe() and bool(pr) and not pr.is_safe()
     assert pr.get_violated_categories() == [ContentCategory.VIOLENCE]
 
     # All benign
-    pr = PolicyResult({ContentCategory.VIOLENCE: False})
+    pr = PolicyResult(
+        scores={ContentCategory.VIOLENCE: 0.1},
+        violated={ContentCategory.VIOLENCE: False},
+        categories=[ContentCategory.VIOLENCE]
+    )
     assert pr.is_safe() and not pr.is_unsafe() and not bool(pr)
     assert pr.get_violated_categories() == []
 
     # Mixed
-    pr = PolicyResult({ContentCategory.VIOLENCE: True, ContentCategory.SEXUAL: False})
+    pr = PolicyResult(
+        scores={ContentCategory.VIOLENCE: 0.9, ContentCategory.SEXUAL: 0.1},
+        violated={ContentCategory.VIOLENCE: True, ContentCategory.SEXUAL: False},
+        categories=[ContentCategory.VIOLENCE, ContentCategory.SEXUAL]
+    )
     assert not pr.is_safe() and pr.is_unsafe() and bool(pr)
     assert pr.get_violated_categories() == [ContentCategory.VIOLENCE]
 

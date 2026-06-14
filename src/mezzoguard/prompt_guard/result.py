@@ -1,4 +1,4 @@
-from ..base_classes import BaseResult
+from .._types import BaseResult
 from .categories import Category
 
 class Result(BaseResult):

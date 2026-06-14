@@ -11,8 +11,9 @@ class PromptPolicy(BasePolicy):
         return self
 
     def evaluate(self, result: Result, **kwargs) -> PolicyResult:
-        categories: dict[Category, bool] = {}
+        violated: dict[Category, bool] = {}
         for key, value in result.scores.items():
             threshold = self.get_threshold(key)
-            categories[key] = value >= threshold
-        return PolicyResult(categories=categories)
+            violated[key] = value >= threshold
+        categories = list(result.scores.keys())
+        return PolicyResult(scores=result.scores, violated=violated, categories=categories)

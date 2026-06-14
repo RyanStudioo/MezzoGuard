@@ -1,7 +1,7 @@
-from enum import Enum
+from .._types import Category
 
 
-class Category(Enum):
+class Category(Category):
     UNSAFE = "unsafe"
     SAFE = "safe"
 

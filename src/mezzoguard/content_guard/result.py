@@ -1,5 +1,5 @@
 from .categories import Category
-from ..base_classes import BaseResult
+from .._types import BaseResult
 
 
 class Result(BaseResult):

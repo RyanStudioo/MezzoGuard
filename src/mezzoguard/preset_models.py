@@ -12,6 +12,14 @@ class PROMPTGUARD:
 class CONTENTGUARD:
     """Mezzo Content Guard Models"""
 
+    MEZZO_CONTENT_GUARD_V1_5_LARGE = "RyanStudio/Mezzo-Content-Guard-v1.5-Large"
+    MEZZO_CONTENT_GUARD_V1_5_BASE = "RyanStudio/Mezzo-Content-Guard-v1.5-Base"
+    MEZZO_CONTENT_GUARD_V1_5_SMALL = "RyanStudio/Mezzo-Content-Guard-v1.5-Small"
+    MEZZO_CONTENT_GUARD_V1_5_TINY = "RyanStudio/Mezzo-Content-Guard-v1.5-Tiny"
+    MEZZO_CONTENT_GUARD_V1_5_NANO = "RyanStudio/Mezzo-Content-Guard-v1.5-Nano"
+
+    MEZZO_CONTENT_GUARD_V1_5_NANO_PREVIEW = "RyanStudio/Mezzo-Content-Guard-v1.5-Nano-Preview"
+
     MEZZO_CONTENT_GUARD_LARGE = "RyanStudio/Mezzo-Content-Guard-Large"
     MEZZO_CONTENT_GUARD_BASE = "RyanStudio/Mezzo-Content-Guard-Base"
     MEZZO_CONTENT_GUARD_SMALL = "RyanStudio/Mezzo-Content-Guard-Small"
@@ -30,11 +38,11 @@ def get_recommended_model(task: Literal["prompt_guard", "content_guard"], priori
         return None
     elif task == "content_guard":
         if priority == "quality":
-            return CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE
+            return CONTENTGUARD.MEZZO_CONTENT_GUARD_V1_5_LARGE
         elif priority == "speed":
-            return CONTENTGUARD.MEZZO_CONTENT_GUARD_SMALL
+            return CONTENTGUARD.MEZZO_CONTENT_GUARD_V1_5_SMALL
         elif priority == "balance":
-            return CONTENTGUARD.MEZZO_CONTENT_GUARD_BASE
+            return CONTENTGUARD.MEZZO_CONTENT_GUARD_V1_5_BASE
         return None
     else:
         raise ValueError(f"Invalid task: {task}")
