@@ -1,9 +1,7 @@
 import asyncio
-import functools
-import inspect
-from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Any
 import warnings
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from .categories import Category
 from .result import Result
@@ -11,7 +9,8 @@ from .config import MODELS_CONFIG, ContentGuardConfig
 from .policy import ContentPolicy
 from ..errors import UnsafeContentError
 from ..model import GuardModel
-from ..base_classes import ModelConfig
+from ..base_classes import ModelConfig, _init_guard_config, _make_redact_before_exec, _make_scan_before_exec
+from .._types import DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, DEFAULT_CONFIDENCE
 
 
 class Guard(GuardModel):
@@ -20,30 +19,10 @@ class Guard(GuardModel):
         super().__init__(name, task="text-classification", **kwargs)
 
         self.model_config: ModelConfig | None = None
+        self.model_config, self.config = _init_guard_config(
+            name, Category, ContentGuardConfig, MODELS_CONFIG
+        )
 
-        # Try loading from JSON file first
-        self.model_config = ModelConfig.from_model_name(name)
-
-        # Fall back to hardcoded MODELS_CONFIG
-        self.config: ContentGuardConfig = MODELS_CONFIG.get(name, None)
-
-        # If we loaded a JSON config, build a ContentGuardConfig from it
-        if self.model_config and not self.config:
-            from .._types import Category as BaseCategory
-            mappings = {}
-            for label, cat_str in self.model_config.mappings.items():
-                try:
-                    cat = Category(cat_str)
-                except ValueError:
-                    cat = BaseCategory(cat_str)
-                mappings[label] = cat
-
-            self.config = ContentGuardConfig(mappings=mappings)
-
-        if not self.config:
-            warnings.warn(f"No preset config found for model {self.name}. You may need to provide a custom config.")
-
-        # Check README.md for deprecation (works even without .mezzoguard file)
         readme_deprecation = ModelConfig.get_deprecation_from_readme(name)
         if readme_deprecation:
             warnings.warn(
@@ -58,17 +37,25 @@ class Guard(GuardModel):
         except ValueError:
             return None
 
-    def _from_prediction(self, results: list[list[dict]]):
+    def _scores_from_chunk(self, chunk_result: list[dict]) -> dict[Category, float]:
+        max_scores: dict[Category, float] = {}
+        for pred in chunk_result:
+            label = pred.get("label", "")
+            category = self._get_category_for_label(label)
+            if category is None:
+                continue
+            score = pred.get("score", 0.0)
+            if category not in max_scores or score > max_scores[category]:
+                max_scores[category] = score
+        return max_scores
+
+    def _from_prediction(self, results: list[list[dict]]) -> Result:
         max_scores: dict[Category, float] = {}
         for chunk_result in results:
-            for pred in chunk_result:
-                label = pred.get("label", "")
-                score = pred.get("score", 0.0)
-                category = self._get_category_for_label(label)
-                if category is not None:
-                    if category not in max_scores or score > max_scores[category]:
-                        max_scores[category] = score
-
+            chunk_scores = self._scores_from_chunk(chunk_result)
+            for category, score in chunk_scores.items():
+                if category not in max_scores or score > max_scores[category]:
+                    max_scores[category] = score
         return Result(chunks=results, scores=max_scores)
 
     def _resolve_redaction_policy(self, policy: ContentPolicy | None, confidence: float) -> ContentPolicy:
@@ -79,40 +66,36 @@ class Guard(GuardModel):
             default_policy.add_threshold(category, confidence)
         return default_policy
 
-    def _scores_from_chunk(self, chunk_result: list[dict]) -> dict[Category, float]:
-        max_scores: dict[Category, float] = {}
-        for result in chunk_result:
-            label = result.get("label", "")
-            category = self._get_category_for_label(label)
-            if category is None:
-                continue
-            score = result.get("score", 0.0)
-            if category not in max_scores or score > max_scores[category]:
-                max_scores[category] = score
-        return max_scores
-
     def _chunk_matches_policy(self, chunk_result: list[dict], policy: ContentPolicy) -> bool:
         scores = self._scores_from_chunk(chunk_result)
         result = policy.evaluate(Result(chunks=[chunk_result], scores=scores))
         return bool(result)
 
-    def scan(self, text: str, max_seq_length: int = 64, overlap: int = 8) -> Result:
+    def _on_unsafe_content(self, result: Result, confidence: float) -> None:
+        violated = []
+        for cat, score in result.scores.items():
+            if score > confidence:
+                violated.append({cat.value: score})
+        if violated:
+            raise UnsafeContentError(violated)
+
+    def scan(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP) -> Result:
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         with ThreadPoolExecutor() as executor:
             futures = [executor.submit(self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
             chunk_results = [future.result() for future in futures]
         return self._from_prediction(chunk_results)
 
-    async def async_scan(self, text: str, max_seq_length: int = 64, overlap: int = 8) -> Result:
+    async def async_scan(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP) -> Result:
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         with ThreadPoolExecutor() as executor:
             tasks = [loop.run_in_executor(executor, self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
             chunk_results = await asyncio.gather(*tasks)
         return self._from_prediction(chunk_results)
 
-    def redact(self, text: str, max_seq_length: int = 64, overlap: int = 16,
-               replace: str = "[REDACTED]", policy: ContentPolicy | None = None, confidence: float = 0.5, **kwargs: Any) -> str:
+    def redact(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP,
+               replace: str = DEFAULT_REDACTED_LABEL, policy: ContentPolicy | None = None, confidence: float = DEFAULT_CONFIDENCE, **kwargs: Any) -> str:
         policy = self._resolve_redaction_policy(policy, confidence)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         redacted_chunks = []
@@ -132,11 +115,11 @@ class Guard(GuardModel):
                     previous_flagged = False
         return " ".join(redacted_chunks)
 
-    async def async_redact(self, text: str, max_seq_length: int = 64, overlap: int = 16,
-                           replace: str = "[REDACTED]", policy: ContentPolicy | None = None, confidence: float = 0.5, **kwargs: Any) -> str:
+    async def async_redact(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP,
+                           replace: str = DEFAULT_REDACTED_LABEL, policy: ContentPolicy | None = None, confidence: float = DEFAULT_CONFIDENCE, **kwargs: Any) -> str:
         policy = self._resolve_redaction_policy(policy, confidence)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         with ThreadPoolExecutor() as executor:
             tasks = [loop.run_in_executor(executor, self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
             chunk_results = await asyncio.gather(*tasks)
@@ -154,102 +137,16 @@ class Guard(GuardModel):
                 previous_flagged = False
         return " ".join(redacted_chunks)
 
-    def redact_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16, replace: str = "[REDACTED]",
-                           policy: ContentPolicy | None = None, confidence: float = 0.5, **kwargs: Any) -> Callable:
+    def redact_before_exec(self, param: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP, replace: str = DEFAULT_REDACTED_LABEL,
+                           policy: ContentPolicy | None = None, confidence: float = DEFAULT_CONFIDENCE, **kwargs: Any):
+        return _make_redact_before_exec(self.redact, self.async_redact)(
+            param, max_seq_length, overlap, replace, policy, confidence
+        )
 
-        def decorator(func):
-            if asyncio.iscoroutinefunction(func):
-                @functools.wraps(func)
-                async def async_wrapper(*args, **kwargs):
-                    sig = inspect.signature(func)
-                    bound = sig.bind(*args, **kwargs)
-                    bound.apply_defaults()
-
-                    value = bound.arguments.get(param)
-
-                    if value is not None:
-                        redacted = await self.async_redact(
-                            value,
-                            max_seq_length,
-                            overlap,
-                            replace,
-                            policy=policy,
-                            confidence=confidence,
-                        )
-                        bound.arguments[param] = redacted
-
-                    return await func(*bound.args, **bound.kwargs)
-                return async_wrapper
-            else:
-                @functools.wraps(func)
-                def wrapper(*args, **kwargs):
-                    sig = inspect.signature(func)
-                    bound = sig.bind(*args, **kwargs)
-                    bound.apply_defaults()
-
-                    value = bound.arguments.get(param)
-
-                    if value is not None:
-                        redacted = self.redact(
-                            value,
-                            max_seq_length,
-                            overlap,
-                            replace,
-                            policy=policy,
-                            confidence=confidence,
-                        )
-                        bound.arguments[param] = redacted
-
-                    return func(*bound.args, **bound.kwargs)
-                return wrapper
-
-        return decorator
-
-    def scan_before_exec(self, param: str, max_seq_length: int = 64, overlap: int = 16,
-                         confidence: float = 0.5) -> Callable:
-
-        def decorator(func):
-            if asyncio.iscoroutinefunction(func):
-                @functools.wraps(func)
-                async def async_wrapper(*args, **kwargs):
-                    sig = inspect.signature(func)
-                    bound = sig.bind(*args, **kwargs)
-                    bound.apply_defaults()
-
-                    value = bound.arguments.get(param)
-
-                    if value is not None:
-                        violated = []
-                        result = await self.async_scan(value, max_seq_length, overlap)
-                        for cat, score in result.scores.items():
-                            if score > confidence:
-                                violated.append({cat.value: score})
-                        if violated:
-                            raise UnsafeContentError(violated)
-
-                    return await func(*bound.args, **bound.kwargs)
-                return async_wrapper
-            else:
-                @functools.wraps(func)
-                def wrapper(*args, **kwargs):
-                    sig = inspect.signature(func)
-                    bound = sig.bind(*args, **kwargs)
-                    bound.apply_defaults()
-
-                    value = bound.arguments.get(param)
-
-                    if value is not None:
-                        violated = []
-                        result = self.scan(value, max_seq_length, overlap)
-                        for cat, score in result.scores.items():
-                            if score > confidence:
-                                violated.append({cat.value: score})
-                        if violated:
-                            raise UnsafeContentError(violated)
-
-                    return func(*bound.args, **bound.kwargs)
-                return wrapper
-
-        return decorator
+    def scan_before_exec(self, param: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP,
+                         confidence: float = DEFAULT_CONFIDENCE):
+        return _make_scan_before_exec(self.scan, self.async_scan, self._on_unsafe_content)(
+            param, max_seq_length, overlap, confidence
+        )
 
 __all__ = ["Guard"]

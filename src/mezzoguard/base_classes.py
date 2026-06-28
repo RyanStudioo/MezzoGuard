@@ -1,9 +1,16 @@
 import json
 import os
+import warnings
 from abc import ABC, abstractmethod
-from typing import Literal, Self, Any, Optional
+from typing import Literal, Self
 
-from ._types import BaseResult, Category
+from ._types import (
+    BaseResult,
+    Category,
+    DEFAULT_MAX_SEQ_LENGTH,
+    DEFAULT_OVERLAP,
+    DEFAULT_REDACTED_LABEL,
+)
 
 CONFIG_FILENAME = ".mezzoguard"
 
@@ -15,10 +22,10 @@ class ModelConfig:
         self,
         model_type: Literal["prompt_guard", "content_guard"],
         mappings: dict[str, str],
-        safe_category: Optional[str] = None,
-        default_max_seq_length: int = 64,
-        default_overlap: int = 16,
-        default_replace: str = "[REDACTED]",
+        safe_category: str | None = None,
+        default_max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        default_overlap: int = DEFAULT_OVERLAP,
+        default_replace: str = DEFAULT_REDACTED_LABEL,
         deprecated: bool = False,
         deprecated_message: str = "",
         replacement: str = "",
@@ -39,21 +46,25 @@ class ModelConfig:
             model_type=data["model_type"],
             mappings=data["mappings"],
             safe_category=data.get("safe_category"),
-            default_max_seq_length=data.get("default_max_seq_length", 64),
-            default_overlap=data.get("default_overlap", 16),
-            default_replace=data.get("default_replace", "[REDACTED]"),
+            default_max_seq_length=data.get("default_max_seq_length", DEFAULT_MAX_SEQ_LENGTH),
+            default_overlap=data.get("default_overlap", DEFAULT_OVERLAP),
+            default_replace=data.get("default_replace", DEFAULT_REDACTED_LABEL),
         )
 
     @classmethod
-    def from_file(cls, path: str) -> Optional["ModelConfig"]:
+    def from_file(cls, path: str) -> "ModelConfig | None":
         if not os.path.isfile(path):
             return None
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            warnings.warn(f"Failed to read config file {path}: {e}")
+            return None
         return cls.from_dict(data)
 
     @classmethod
-    def _parse_readme(cls, content: str) -> Optional[dict]:
+    def _parse_readme(cls, content: str) -> dict | None:
         """Parse YAML frontmatter from README.md for new_version field."""
         content = content.strip()
         if not content.startswith("---"):
@@ -84,13 +95,16 @@ class ModelConfig:
         return os.path.exists(model_name)
 
     @classmethod
-    def get_deprecation_from_readme(cls, model_name: str) -> Optional[dict]:
+    def get_deprecation_from_readme(cls, model_name: str) -> dict | None:
         """Parse README.md from model repo for new_version deprecation field."""
         if cls._is_local_path(model_name):
             readme_path = os.path.join(model_name, "README.md")
             if os.path.isfile(readme_path):
-                with open(readme_path, "r", encoding="utf-8") as f:
-                    return cls._parse_readme(f.read())
+                try:
+                    with open(readme_path, "r", encoding="utf-8") as f:
+                        return cls._parse_readme(f.read())
+                except OSError:
+                    return None
         else:
             try:
                 from huggingface_hub import hf_hub_download
@@ -101,15 +115,14 @@ class ModelConfig:
                 )
                 with open(downloaded, "r", encoding="utf-8") as f:
                     return cls._parse_readme(f.read())
-            except Exception:
+            except (OSError, ImportError):
                 return None
         return None
 
     @classmethod
-    def from_model_name(cls, model_name: str) -> Optional["ModelConfig"]:
+    def from_model_name(cls, model_name: str) -> "ModelConfig | None":
         config = None
 
-        # 1. Load .mezzoguard config
         if cls._is_local_path(model_name):
             local_config = os.path.join(model_name, CONFIG_FILENAME)
             config = cls.from_file(local_config)
@@ -122,13 +135,11 @@ class ModelConfig:
                     repo_type="model",
                 )
                 config = cls.from_file(downloaded)
-            except Exception:
+            except (OSError, ImportError):
                 pass
 
-        # 2. Check README.md for deprecation (new_version field)
         readme_info = cls.get_deprecation_from_readme(model_name)
 
-        # 3. Apply deprecation info from README to config
         if readme_info and config:
             config.deprecated = readme_info["deprecated"]
             config.replacement = readme_info["replacement"]
@@ -182,23 +193,148 @@ class PolicyResult(BaseResult):
     def get_violated_categories(self) -> list[Category]:
         return [category for category, violated in self.violated.items() if violated]
 
+
 class BasePolicy(ABC):
     """Base Policy class"""
     def __init__(self):
-        self._mapping = {}
+        self._mapping: dict[Category, float] = {}
 
-    def add_threshold(self, category: Any, threshold: float) -> Self:
+    def add_threshold(self, category: Category, threshold: float) -> Self:
         """Add a threshold to a category"""
         self._mapping[category] = threshold
         return self
 
-    def get_threshold(self, category: Any) -> float:
+    def get_threshold(self, category: Category) -> float:
         """Get the threshold of a category"""
         if category not in self._mapping:
             return 0.0
         return self._mapping[category]
 
-    @abstractmethod
     def evaluate(self, result: BaseResult, **kwargs) -> PolicyResult:
         """Evaluate a result from a guard scan"""
-        raise NotImplementedError
+        violated: dict[Category, bool] = {}
+        for key, value in result.scores.items():
+            threshold = self.get_threshold(key)
+            violated[key] = value >= threshold
+        categories = list(result.scores.keys())
+        return PolicyResult(scores=result.scores, violated=violated, categories=categories)
+
+
+def _init_guard_config(name: str, CategoryEnum: type, ConfigClass: type, models_config: dict):
+    """Shared config-loading logic for Guard __init__ methods.
+
+    Returns (model_config, config) tuple.
+    """
+    from . import _types
+
+    model_config = ModelConfig.from_model_name(name)
+    config = models_config.get(name, None)
+
+    if model_config and not config:
+        mappings = {}
+        for label, cat_str in model_config.mappings.items():
+            try:
+                cat = CategoryEnum(cat_str)
+            except ValueError:
+                cat = _types.Category(cat_str)
+            mappings[label] = cat
+
+        safe_cat = None
+        if getattr(model_config, "safe_category", None):
+            try:
+                safe_cat = CategoryEnum(model_config.safe_category)
+            except ValueError:
+                safe_cat = _types.Category(model_config.safe_category)
+
+        if safe_cat is not None:
+            config = ConfigClass(mappings=mappings, safe_category=safe_cat)
+        else:
+            config = ConfigClass(mappings=mappings)
+
+    if not config:
+        warnings.warn(
+            f"No preset config found for model {name}. You may need to provide a custom config."
+        )
+
+    return model_config, config
+
+
+def _make_redact_before_exec(redact_method, async_redact_method):
+    """Shared decorator factory for redact_before_exec."""
+    import asyncio
+    import functools
+    import inspect
+
+    def decorator(param, max_seq_length, overlap, replace, policy, confidence):
+        def outer_decorator(func):
+            if asyncio.iscoroutinefunction(func):
+                @functools.wraps(func)
+                async def async_wrapper(*args, **kwargs):
+                    sig = inspect.signature(func)
+                    bound = sig.bind(*args, **kwargs)
+                    bound.apply_defaults()
+                    value = bound.arguments.get(param)
+                    if value is not None:
+                        redacted = await async_redact_method(
+                            value, max_seq_length, overlap, replace,
+                            policy=policy, confidence=confidence,
+                        )
+                        bound.arguments[param] = redacted
+                    return await func(*bound.args, **bound.kwargs)
+                return async_wrapper
+            else:
+                @functools.wraps(func)
+                def wrapper(*args, **kwargs):
+                    sig = inspect.signature(func)
+                    bound = sig.bind(*args, **kwargs)
+                    bound.apply_defaults()
+                    value = bound.arguments.get(param)
+                    if value is not None:
+                        redacted = redact_method(
+                            value, max_seq_length, overlap, replace,
+                            policy=policy, confidence=confidence,
+                        )
+                        bound.arguments[param] = redacted
+                    return func(*bound.args, **bound.kwargs)
+                return wrapper
+        return outer_decorator
+    return decorator
+
+
+def _make_scan_before_exec(scan_method, async_scan_method, on_unsafe):
+    """Shared decorator factory for scan_before_exec.
+
+    on_unsafe: callable(result, confidence) that raises if unsafe.
+    """
+    import asyncio
+    import functools
+    import inspect
+
+    def decorator(param, max_seq_length, overlap, confidence):
+        def outer_decorator(func):
+            if asyncio.iscoroutinefunction(func):
+                @functools.wraps(func)
+                async def async_wrapper(*args, **kwargs):
+                    sig = inspect.signature(func)
+                    bound = sig.bind(*args, **kwargs)
+                    bound.apply_defaults()
+                    value = bound.arguments.get(param)
+                    if value is not None:
+                        result = await async_scan_method(value, max_seq_length, overlap)
+                        on_unsafe(result, confidence)
+                    return await func(*bound.args, **bound.kwargs)
+                return async_wrapper
+            else:
+                @functools.wraps(func)
+                def wrapper(*args, **kwargs):
+                    sig = inspect.signature(func)
+                    bound = sig.bind(*args, **kwargs)
+                    bound.apply_defaults()
+                    value = bound.arguments.get(param)
+                    if value is not None:
+                        result = scan_method(value, max_seq_length, overlap)
+                        on_unsafe(result, confidence)
+                    return func(*bound.args, **bound.kwargs)
+                return wrapper
+        return outer_decorator
+    return decorator

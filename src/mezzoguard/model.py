@@ -1,11 +1,10 @@
-import inspect
 from abc import abstractmethod, ABC
-from typing import Optional, Union, Literal, Callable, Any
+from typing import Literal, Callable, Any
 
 import torch
 from transformers import pipeline
 
-from ._types import BaseResult
+from ._types import BaseResult, DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, PIPELINE_TASK
 
 
 class Model(ABC):
@@ -13,16 +12,14 @@ class Model(ABC):
     def __init__(
             self,
             name: str,
-            task: Union[
-                Literal["text-classification"]
-            ],
-            dtype: Union[torch.dtype, str] = "auto",
-            torch_compile: bool=False,
-            compile_mode: str="default"
+            task: Literal["text-classification"],
+            dtype: torch.dtype | str = "auto",
+            torch_compile: bool = False,
+            compile_mode: str = "default"
     ):
         self.name = name
         self.task = task
-        self.pipeline: Optional[pipeline] = None
+        self.pipeline: pipeline | None = None
         self.dtype = dtype
         self.torch_compile = torch_compile
         self.compile_mode = compile_mode
@@ -39,9 +36,9 @@ class Model(ABC):
 
     @classmethod
     @abstractmethod
-    def _from_prediction(cls, results: list):...
+    def _from_prediction(cls, results: list): ...
 
-    def _split_tokens_into_chunks(self, text: str, max_seq_length: int, overlap: int=0):
+    def _split_tokens_into_chunks(self, text: str, max_seq_length: int, overlap: int = 0) -> list:
         tokens = self.tokenize(text)
         chunks = []
         step = max_seq_length - overlap
@@ -59,14 +56,14 @@ class Model(ABC):
                 break
         return chunks
 
-    def _is_batch_tokens(self, tokenized_text: Union[list[str], list[list[str]]]) -> bool:
+    def _is_batch_tokens(self, tokenized_text: list[str] | list[list[str]]) -> bool:
         if not tokenized_text:
             return False
 
         first_element = tokenized_text[0]
         return isinstance(first_element, list)
 
-    def _predict_tokenized_text(self, tokenized_text: Union[list[str], list[list[str]]]):
+    def _predict_tokenized_text(self, tokenized_text: list[str] | list[list[str]]):
         token_ids = self.pipeline.tokenizer.convert_tokens_to_ids(tokenized_text)
         decoded_chunk = self.pipeline.tokenizer.decode(token_ids, skip_special_tokens=True)
         result = self.pipeline(decoded_chunk)
@@ -80,10 +77,6 @@ class Model(ABC):
         token_ids = self.pipeline.tokenizer.convert_tokens_to_ids(tokenized_text)
         decoded_chunk = self.pipeline.tokenizer.decode(token_ids, skip_special_tokens=True)
         result = self.pipeline(decoded_chunk, top_k=None)
-        if not self._is_batch_tokens(tokenized_text):
-            result = result
-        else:
-            result = [res for res in result]
         return result
 
     def _reform_tokenized_chunk(self, chunk: list[str]) -> str:
@@ -91,7 +84,7 @@ class Model(ABC):
         reformed_text = self.pipeline.tokenizer.decode(token_ids, skip_special_tokens=True)
         return reformed_text
 
-    def tokenize(self, text: str):
+    def tokenize(self, text: str) -> list[str]:
         self.load_model()
         return self.pipeline.tokenizer.tokenize(text)
 
@@ -104,15 +97,17 @@ class Model(ABC):
         if not self.pipeline:
             if self.dtype == "auto":
                 self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            if self.torch_compile:
-                from transformers import AutoTokenizer
-                tokenizer = AutoTokenizer.from_pretrained(self.name)
-                from transformers import AutoModelForSequenceClassification
-                model = AutoModelForSequenceClassification.from_pretrained(self.name, torch_dtype=self.dtype)
-                model.forward = torch.compile(model.forward, mode=self.compile_mode, dynamic=True)
-                self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype)
-            else:
-                self.pipeline = pipeline(self.task, model=self.name, dtype=self.dtype)
+            try:
+                if self.torch_compile:
+                    from transformers import AutoTokenizer, AutoModelForSequenceClassification
+                    tokenizer = AutoTokenizer.from_pretrained(self.name)
+                    model = AutoModelForSequenceClassification.from_pretrained(self.name, torch_dtype=self.dtype)
+                    model.forward = torch.compile(model.forward, mode=self.compile_mode, dynamic=True)
+                    self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype)
+                else:
+                    self.pipeline = pipeline(self.task, model=self.name, dtype=self.dtype)
+            except Exception as e:
+                raise RuntimeError(f"Failed to load model '{self.name}': {e}") from e
         return
 
     def eject_model(self) -> None:
@@ -128,28 +123,26 @@ class GuardModel(Model):
     def __init__(
             self,
             name: str,
-            task: Union[
-                     Literal["text-classification"]
-            ],
-            **kwargs
-                 ):
+            task: Literal["text-classification"],
+            **kwargs: Any
+    ):
         super().__init__(name=name, task=task, **kwargs)
 
     @abstractmethod
     def scan(
             self,
             text: str,
-            max_seq_length: int = 64,
-            overlap: int = 16
+            max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+            overlap: int = DEFAULT_OVERLAP
     ) -> BaseResult: ...
 
     @abstractmethod
     def redact(
             self,
             text: str,
-            max_seq_length: int = 64,
-            overlap: int = 16,
-            replace: str = "[REDACTED]",
+            max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+            overlap: int = DEFAULT_OVERLAP,
+            replace: str = DEFAULT_REDACTED_LABEL,
             **kwargs: Any
     ) -> str: ...
 
@@ -157,9 +150,9 @@ class GuardModel(Model):
     def redact_before_exec(
             self,
             param: str,
-            max_seq_length: int = 64,
-            overlap: int = 16,
-            replace: str = "[REDACTED]",
+            max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+            overlap: int = DEFAULT_OVERLAP,
+            replace: str = DEFAULT_REDACTED_LABEL,
             **kwargs: Any
     ) -> Callable: ...
 
@@ -167,8 +160,8 @@ class GuardModel(Model):
     def scan_before_exec(
             self,
             param: str,
-            max_seq_length: int = 64,
-            overlap: int = 16,
+            max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+            overlap: int = DEFAULT_OVERLAP,
             **kwargs: Any
     ) -> Callable: ...
 
@@ -176,19 +169,16 @@ class GuardModel(Model):
     async def async_scan(
             self,
             text: str,
-            max_seq_length: int = 64,
-            overlap: int = 16
+            max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+            overlap: int = DEFAULT_OVERLAP
     ) -> BaseResult: ...
 
     @abstractmethod
     async def async_redact(
             self,
             text: str,
-            max_seq_length: int = 64,
-            overlap: int = 16,
-            replace: str = "[REDACTED]",
+            max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+            overlap: int = DEFAULT_OVERLAP,
+            replace: str = DEFAULT_REDACTED_LABEL,
             **kwargs: Any
     ) -> str: ...
-
-
-

@@ -1,11 +1,7 @@
 import asyncio
-import functools
-import inspect
-from concurrent.futures.thread import ThreadPoolExecutor
-from typing import Optional, Callable
 import warnings
-
-from transformers import pipeline
+from concurrent.futures.thread import ThreadPoolExecutor
+from typing import Callable
 
 from . import Result
 from .config import MODELS_CONFIG, PromptGuardConfig
@@ -13,7 +9,8 @@ from .categories import Category
 from .policy import PromptPolicy
 from ..errors import UnsafePromptError
 from ..model import GuardModel
-from ..base_classes import ModelConfig
+from ..base_classes import ModelConfig, _init_guard_config, _make_redact_before_exec, _make_scan_before_exec
+from .._types import DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, DEFAULT_CONFIDENCE
 
 
 class Guard(GuardModel):
@@ -22,39 +19,10 @@ class Guard(GuardModel):
         super().__init__(name=name, task="text-classification", **kwargs)
 
         self.model_config: ModelConfig | None = None
+        self.model_config, self.config = _init_guard_config(
+            name, Category, PromptGuardConfig, MODELS_CONFIG
+        )
 
-        # Try loading from JSON file first
-        self.model_config = ModelConfig.from_model_name(name)
-
-        # Fall back to hardcoded MODELS_CONFIG
-        self.config: PromptGuardConfig = MODELS_CONFIG.get(name, None)
-
-        # If we loaded a JSON config, build a PromptGuardConfig from it
-        if self.model_config and not self.config:
-            from .._types import Category as BaseCategory
-            mappings = {}
-            for label, cat_str in self.model_config.mappings.items():
-                try:
-                    cat = Category(cat_str)
-                except ValueError:
-                    cat = BaseCategory(cat_str)
-                mappings[label] = cat
-
-            safe_cat = None
-            if self.model_config.safe_category:
-                try:
-                    safe_cat = Category(self.model_config.safe_category)
-                except ValueError:
-                    safe_cat = BaseCategory(self.model_config.safe_category)
-
-            self.config = PromptGuardConfig(mappings=mappings, safe_category=safe_cat or Category.SAFE)
-
-        if not self.config:
-            warnings.warn(
-                f"No preset config found for model {self.name}. You may need to provide a custom config."
-            )
-
-        # Check README.md for deprecation (works even without .mezzoguard file)
         readme_deprecation = ModelConfig.get_deprecation_from_readme(name)
         if readme_deprecation:
             warnings.warn(
@@ -78,7 +46,7 @@ class Guard(GuardModel):
         return Result(chunks=chunks, scores=scores)
 
     def _resolve_redaction_policy(
-        self, policy: Optional[PromptPolicy], confidence: float
+        self, policy: PromptPolicy | None, confidence: float
     ) -> PromptPolicy:
         if policy is not None:
             return policy
@@ -88,7 +56,12 @@ class Guard(GuardModel):
         result = self._from_prediction([chunk_result])
         return bool(policy.evaluate(result))
 
-    def scan(self, text: str, max_seq_length: int = 64, overlap: int = 16) -> Result:
+    def _on_unsafe_prompt(self, result: Result, confidence: float) -> None:
+        unsafe_score = result.scores.get(Category.UNSAFE, 0.0)
+        if unsafe_score >= confidence:
+            raise UnsafePromptError(unsafe_score)
+
+    def scan(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP) -> Result:
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
         results = []
         with ThreadPoolExecutor() as executor:
@@ -97,10 +70,10 @@ class Guard(GuardModel):
         return self._from_prediction(results)
 
     async def async_scan(
-        self, text: str, max_seq_length: int = 64, overlap: int = 16
+        self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
     ) -> Result:
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         with ThreadPoolExecutor() as executor:
             tasks = [
                 loop.run_in_executor(executor, self._predict_tokenized_text, chunk)
@@ -112,11 +85,11 @@ class Guard(GuardModel):
     def redact(
         self,
         text: str,
-        max_seq_length: int = 64,
-        overlap: int = 16,
-        replace: str = "[REDACTED]",
-        policy: Optional[PromptPolicy] = None,
-        confidence: float = 0.5,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str = DEFAULT_REDACTED_LABEL,
+        policy: PromptPolicy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
     ) -> str:
         policy = self._resolve_redaction_policy(policy, confidence)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
@@ -140,15 +113,15 @@ class Guard(GuardModel):
     async def async_redact(
         self,
         text: str,
-        max_seq_length: int = 64,
-        overlap: int = 16,
-        replace: str = "[REDACTED]",
-        policy: Optional[PromptPolicy] = None,
-        confidence: float = 0.5,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str = DEFAULT_REDACTED_LABEL,
+        policy: PromptPolicy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
     ) -> str:
         policy = self._resolve_redaction_policy(policy, confidence)
         chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         with ThreadPoolExecutor() as executor:
             tasks = [
                 loop.run_in_executor(executor, self._predict_tokenized_text, chunk)
@@ -172,102 +145,22 @@ class Guard(GuardModel):
     def redact_before_exec(
         self,
         param: str,
-        max_seq_length: int = 64,
-        overlap: int = 16,
-        replace: str = "[REDACTED]",
-        policy: Optional[PromptPolicy] = None,
-        confidence: float = 0.5,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str = DEFAULT_REDACTED_LABEL,
+        policy: PromptPolicy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
     ) -> Callable:
-
-        def decorator(func):
-            if asyncio.iscoroutinefunction(func):
-                @functools.wraps(func)
-                async def async_wrapper(*args, **kwargs):
-                    sig = inspect.signature(func)
-                    bound = sig.bind(*args, **kwargs)
-                    bound.apply_defaults()
-
-                    value = bound.arguments.get(param)
-
-                    if value is not None:
-                        redacted = await self.async_redact(
-                            value,
-                            max_seq_length,
-                            overlap,
-                            replace,
-                            policy=policy,
-                            confidence=confidence,
-                        )
-                        bound.arguments[param] = redacted
-
-                    return await func(*bound.args, **bound.kwargs)
-                return async_wrapper
-            else:
-                @functools.wraps(func)
-                def wrapper(*args, **kwargs):
-                    sig = inspect.signature(func)
-                    bound = sig.bind(*args, **kwargs)
-                    bound.apply_defaults()
-
-                    value = bound.arguments.get(param)
-
-                    if value is not None:
-                        redacted = self.redact(
-                            value,
-                            max_seq_length,
-                            overlap,
-                            replace,
-                            policy=policy,
-                            confidence=confidence,
-                        )
-                        bound.arguments[param] = redacted
-
-                    return func(*bound.args, **bound.kwargs)
-                return wrapper
-
-        return decorator
+        return _make_redact_before_exec(self.redact, self.async_redact)(
+            param, max_seq_length, overlap, replace, policy, confidence
+        )
 
     def scan_before_exec(
-        self, param: str, max_seq_length: int = 64, overlap: int = 16, confidence: float = 0.5
+        self, param: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP, confidence: float = DEFAULT_CONFIDENCE
     ) -> Callable:
-
-        def decorator(func):
-            if asyncio.iscoroutinefunction(func):
-                @functools.wraps(func)
-                async def async_wrapper(*args, **kwargs):
-                    sig = inspect.signature(func)
-                    bound = sig.bind(*args, **kwargs)
-                    bound.apply_defaults()
-
-                    value = bound.arguments.get(param)
-
-                    if value is not None:
-                        result = await self.async_scan(value, max_seq_length, overlap)
-                        unsafe_score = result.scores.get(Category.UNSAFE, 0.0)
-                        if unsafe_score >= confidence:
-                            raise UnsafePromptError(unsafe_score)
-
-                    return await func(*bound.args, **bound.kwargs)
-                return async_wrapper
-            else:
-                @functools.wraps(func)
-                def wrapper(*args, **kwargs):
-                    sig = inspect.signature(func)
-                    bound = sig.bind(*args, **kwargs)
-                    bound.apply_defaults()
-
-                    value = bound.arguments.get(param)
-
-                    if value is not None:
-                        result = self.scan(value, max_seq_length, overlap)
-                        unsafe_score = result.scores.get(Category.UNSAFE, 0.0)
-                        if unsafe_score >= confidence:
-                            raise UnsafePromptError(unsafe_score)
-
-                    return func(*bound.args, **bound.kwargs)
-                return wrapper
-
-        return decorator
+        return _make_scan_before_exec(self.scan, self.async_scan, self._on_unsafe_prompt)(
+            param, max_seq_length, overlap, confidence
+        )
 
 
 __all__ = ["Guard"]

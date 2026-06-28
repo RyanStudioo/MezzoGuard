@@ -25,8 +25,8 @@ class ContentGuardConfig(BaseConfig):
     def get_labels_for_category(self, category: Category) -> list[str]:
         valid = []
         for label, cat in self.mappings.items():
-                if cat == category:
-                    valid.append(label)
+            if cat == category:
+                valid.append(label)
         return valid
 
 CONFIGS = {
