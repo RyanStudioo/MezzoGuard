@@ -15,14 +15,19 @@ class Model(ABC):
             task: Literal["text-classification"],
             dtype: torch.dtype | str = "auto",
             torch_compile: bool = False,
-            compile_mode: str = "default"
+            compile_mode: str = "default",
+            use_onnx: bool = False
     ):
+        if torch_compile and use_onnx:
+            raise ValueError("torch_compile and use_onnx cannot be used together")
+
         self.name = name
         self.task = task
         self.pipeline: pipeline | None = None
         self.dtype = dtype
         self.torch_compile = torch_compile
         self.compile_mode = compile_mode
+        self.use_onnx = use_onnx
 
         self.load_model()
 
@@ -98,7 +103,13 @@ class Model(ABC):
             if self.dtype == "auto":
                 self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
             try:
-                if self.torch_compile:
+                if self.use_onnx:
+                    from optimum.onnxruntime import ORTModelForSequenceClassification
+                    from transformers import AutoTokenizer
+                    tokenizer = AutoTokenizer.from_pretrained(self.name)
+                    model = ORTModelForSequenceClassification.from_pretrained(self.name, export=True)
+                    self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype)
+                elif self.torch_compile:
                     from transformers import AutoTokenizer, AutoModelForSequenceClassification
                     tokenizer = AutoTokenizer.from_pretrained(self.name)
                     model = AutoModelForSequenceClassification.from_pretrained(self.name, torch_dtype=self.dtype)

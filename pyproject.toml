@@ -31,5 +31,8 @@ keywords = [
     "content safety", "ai safety", "model safety", "application security", "python sdk", "sdk"
 ]
 
+[project.optional-dependencies]
+onnx = ["optimum[onnxruntime]"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/mezzoguard"]
