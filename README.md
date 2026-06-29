@@ -23,3 +23,4 @@ It is recommended to use the latest version of each model even if older versions
 
 ### Content Guards
 - [Mezzo Content Guard](https://huggingface.co/collections/RyanStudio/mezzo-content-guard)
+- [Mezzo Content Guard v1.5](https://huggingface.co/collections/RyanStudio/mezzo-content-guard-v15)
