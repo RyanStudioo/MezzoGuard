@@ -13,7 +13,13 @@ class Model(ABC):
             self,
             name: str,
             task: Literal["text-classification"],
-            dtype: torch.dtype | str = "auto",
+            dtype: Literal[
+                "auto",
+                "fp32",
+                "fp16",
+                "bf16",
+                "int8"
+            ] = "auto",
             torch_compile: bool = False,
             compile_mode: str = "default",
             use_onnx: bool = False
@@ -25,6 +31,18 @@ class Model(ABC):
         self.task = task
         self.pipeline: pipeline | None = None
         self.dtype = dtype
+        match self.dtype:
+            case "auto":
+                self.torch_dtype = torch.float16
+            case "fp32":
+                self.torch_dtype = torch.float32
+            case "fp16":
+                self.torch_dtype = torch.float16
+            case "bf16":
+                self.torch_dtype = torch.bfloat16 if not use_onnx else torch.float16
+            case "int8":
+                self.torch_dtype = torch.int8
+
         self.torch_compile = torch_compile
         self.compile_mode = compile_mode
         self.use_onnx = use_onnx
@@ -99,26 +117,41 @@ class Model(ABC):
         return len(tokens)
 
     def load_model(self) -> None:
-        if not self.pipeline:
-            if self.dtype == "auto":
-                self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            try:
-                if self.use_onnx:
-                    from optimum.onnxruntime import ORTModelForSequenceClassification
-                    from transformers import AutoTokenizer
-                    tokenizer = AutoTokenizer.from_pretrained(self.name)
-                    model = ORTModelForSequenceClassification.from_pretrained(self.name, export=True)
-                    self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype)
-                elif self.torch_compile:
-                    from transformers import AutoTokenizer, AutoModelForSequenceClassification
-                    tokenizer = AutoTokenizer.from_pretrained(self.name)
-                    model = AutoModelForSequenceClassification.from_pretrained(self.name, torch_dtype=self.dtype)
-                    model.forward = torch.compile(model.forward, mode=self.compile_mode, dynamic=True)
-                    self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype)
+        if self.pipeline: return
+        try:
+            if self.use_onnx:
+                from optimum.onnxruntime import ORTModelForSequenceClassification
+                from transformers import AutoTokenizer
+                from huggingface_hub import HfApi
+
+                tokenizer = AutoTokenizer.from_pretrained(self.name)
+                api = HfApi()
+                repo_files = api.list_repo_files(self.name)
+
+                onnx_folder = f"onnx/"
+                resolved_dtype = "fp16" if self.dtype == "auto" else self.dtype
+                onnx_subfolder = f"model_{resolved_dtype}"
+                model_folder = f"{onnx_folder}{onnx_subfolder}"
+                has_onnx = any(f.startswith("onnx/") for f in repo_files)
+                has_subfolder = any(f.startswith(f"{onnx_folder}{onnx_subfolder}/") for f in repo_files)
+
+                if has_onnx and has_subfolder:
+                    model = ORTModelForSequenceClassification.from_pretrained(self.name, subfolder=model_folder, file_name="model.onnx")
                 else:
-                    self.pipeline = pipeline(self.task, model=self.name, dtype=self.dtype)
-            except Exception as e:
-                raise RuntimeError(f"Failed to load model '{self.name}': {e}") from e
+                    print("No ONNX model found in the repository. Exporting to ONNX...")
+                    model = ORTModelForSequenceClassification.from_pretrained(self.name, export=True)
+
+                self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, torch_dtype=self.torch_dtype)
+            elif self.torch_compile:
+                from transformers import AutoTokenizer, AutoModelForSequenceClassification
+                tokenizer = AutoTokenizer.from_pretrained(self.name)
+                model = AutoModelForSequenceClassification.from_pretrained(self.name, torch_dtype=self.torch_dtype)
+                model.forward = torch.compile(model.forward, mode=self.compile_mode, dynamic=True)
+                self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, torch_dtype=self.torch_dtype)
+            else:
+                self.pipeline = pipeline(self.task, model=self.name, torch_dtype=self.torch_dtype)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load model '{self.name}': {e}") from e
         return
 
     def eject_model(self) -> None:
