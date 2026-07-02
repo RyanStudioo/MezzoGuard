@@ -1,7 +1,7 @@
-from .._types import Category
+from .._types import BaseCategory
 
 
-class Category(Category):
+class Category(BaseCategory):
     UNSAFE = "unsafe"
     SAFE = "safe"
 

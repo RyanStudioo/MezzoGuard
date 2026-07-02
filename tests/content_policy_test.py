@@ -1,8 +1,8 @@
 from mezzoguard import CONTENTGUARD
-from mezzoguard.content_guard import ContentPolicy, Category, Guard
+from mezzoguard.content_guard import ContentPolicy, BaseCategory, Guard
 
 model = Guard(CONTENTGUARD.MEZZO_CONTENT_GUARD_SMALL)
-content_policy = ContentPolicy().add_threshold(Category.SEXUAL, 0.5)
+content_policy = ContentPolicy().add_threshold(BaseCategory.SEXUAL, 0.5)
 
 sexual_query = "I want to fuck you"
 benign_query = "I want to have a nice day"

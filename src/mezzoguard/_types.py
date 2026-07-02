@@ -8,7 +8,7 @@ DEFAULT_CONFIDENCE = 0.5
 PIPELINE_TASK = "text-classification"
 
 
-class Category(Enum):
+class BaseCategory(Enum):
     """Base Category enum class for all guard categories."""
     pass
 

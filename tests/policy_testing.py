@@ -1,9 +1,9 @@
 """Test script for ContentPolicy and PromptPolicy with PolicyResult.
 True = violation, False = benign."""
 
-from mezzoguard.content_guard import ContentPolicy, Category as ContentCategory
+from mezzoguard.content_guard import ContentPolicy, BaseCategory as ContentCategory
 from mezzoguard.content_guard.result import Result as ContentResult
-from mezzoguard.prompt_guard import PromptPolicy, Category as PromptCategory
+from mezzoguard.prompt_guard import PromptPolicy, BaseCategory as PromptCategory
 from mezzoguard.prompt_guard.result import Result as PromptResult
 
 

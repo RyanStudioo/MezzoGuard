@@ -6,7 +6,7 @@ from typing import Literal, Self
 
 from ._types import (
     BaseResult,
-    Category,
+    BaseCategory,
     DEFAULT_MAX_SEQ_LENGTH,
     DEFAULT_OVERLAP,
     DEFAULT_REDACTED_LABEL,
@@ -171,7 +171,7 @@ class BaseConfig:
 
 
 class PolicyResult(BaseResult):
-    def __init__(self, scores: dict[Category, float], violated: dict[Category, bool], categories: list[Category]):
+    def __init__(self, scores: dict[BaseCategory, float], violated: dict[BaseCategory, bool], categories: list[BaseCategory]):
         self.scores = scores
         self.violated = violated
         self.categories = categories
@@ -190,21 +190,21 @@ class PolicyResult(BaseResult):
     def is_unsafe(self) -> bool:
         return any(self.violated.values())
 
-    def get_violated_categories(self) -> list[Category]:
+    def get_violated_categories(self) -> list[BaseCategory]:
         return [category for category, violated in self.violated.items() if violated]
 
 
 class BasePolicy(ABC):
     """Base Policy class"""
     def __init__(self):
-        self._mapping: dict[Category, float] = {}
+        self._mapping: dict[BaseCategory, float] = {}
 
-    def add_threshold(self, category: Category, threshold: float) -> Self:
+    def add_threshold(self, category: BaseCategory, threshold: float) -> Self:
         """Add a threshold to a category"""
         self._mapping[category] = threshold
         return self
 
-    def get_threshold(self, category: Category) -> float:
+    def get_threshold(self, category: BaseCategory) -> float:
         """Get the threshold of a category"""
         if category not in self._mapping:
             return 0.0
@@ -212,7 +212,7 @@ class BasePolicy(ABC):
 
     def evaluate(self, result: BaseResult, **kwargs) -> PolicyResult:
         """Evaluate a result from a guard scan"""
-        violated: dict[Category, bool] = {}
+        violated: dict[BaseCategory, bool] = {}
         for key, value in result.scores.items():
             threshold = self.get_threshold(key)
             violated[key] = value >= threshold
@@ -236,7 +236,7 @@ def _init_guard_config(name: str, CategoryEnum: type, ConfigClass: type, models_
             try:
                 cat = CategoryEnum(cat_str)
             except ValueError:
-                cat = _types.Category(cat_str)
+                cat = _types.BaseCategory(cat_str)
             mappings[label] = cat
 
         safe_cat = None
@@ -244,7 +244,7 @@ def _init_guard_config(name: str, CategoryEnum: type, ConfigClass: type, models_
             try:
                 safe_cat = CategoryEnum(model_config.safe_category)
             except ValueError:
-                safe_cat = _types.Category(model_config.safe_category)
+                safe_cat = _types.BaseCategory(model_config.safe_category)
 
         if safe_cat is not None:
             config = ConfigClass(mappings=mappings, safe_category=safe_cat)
