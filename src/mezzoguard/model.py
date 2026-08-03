@@ -1,3 +1,4 @@
+import inspect
 from abc import abstractmethod, ABC
 from typing import Literal, Callable, Any
 
@@ -5,6 +6,8 @@ import torch
 from transformers import pipeline
 
 from ._types import BaseResult, DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, PIPELINE_TASK
+from .cache import TextLRUCache
+from .config import cache_enabled
 
 
 class Model(ABC):
@@ -46,6 +49,7 @@ class Model(ABC):
         self.torch_compile = torch_compile
         self.compile_mode = compile_mode
         self.use_onnx = use_onnx
+        self._cache = TextLRUCache()
 
         self.load_model()
 
@@ -89,17 +93,29 @@ class Model(ABC):
     def _predict_tokenized_text(self, tokenized_text: list[str] | list[list[str]]):
         token_ids = self.pipeline.tokenizer.convert_tokens_to_ids(tokenized_text)
         decoded_chunk = self.pipeline.tokenizer.decode(token_ids, skip_special_tokens=True)
+        if cache_enabled:
+            cached = self._cache.get(decoded_chunk)
+            if cached is not None:
+                return cached
         result = self.pipeline(decoded_chunk)
         if not self._is_batch_tokens(tokenized_text):
             result = result[0]
         else:
             result = [res[0] for res in result]
+        if cache_enabled:
+            self._cache.put(decoded_chunk, result)
         return result
 
     def _predict_tokenized_text_topk_none(self, tokenized_text: list[str]):
         token_ids = self.pipeline.tokenizer.convert_tokens_to_ids(tokenized_text)
         decoded_chunk = self.pipeline.tokenizer.decode(token_ids, skip_special_tokens=True)
+        if cache_enabled:
+            cached = self._cache.get(decoded_chunk)
+            if cached is not None:
+                return cached
         result = self.pipeline(decoded_chunk, top_k=None)
+        if cache_enabled:
+            self._cache.put(decoded_chunk, result)
         return result
 
     def _reform_tokenized_chunk(self, chunk: list[str]) -> str:
@@ -115,6 +131,16 @@ class Model(ABC):
         self.load_model()
         tokens = self.tokenize(text)
         return len(tokens)
+
+    @staticmethod
+    def _strip_token_type_ids(pipeline_obj: pipeline) -> None:
+        model = pipeline_obj.model
+        if 'token_type_ids' not in inspect.signature(model.forward).parameters:
+            original_forward = model.forward
+            def _forward(*args: Any, **kwargs: Any) -> Any:
+                kwargs.pop('token_type_ids', None)
+                return original_forward(*args, **kwargs)
+            model.forward = _forward
 
     def load_model(self) -> None:
         if self.pipeline: return
@@ -150,6 +176,7 @@ class Model(ABC):
                 self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, torch_dtype=self.torch_dtype)
             else:
                 self.pipeline = pipeline(self.task, model=self.name, torch_dtype=self.torch_dtype)
+            self._strip_token_type_ids(self.pipeline)
         except Exception as e:
             raise RuntimeError(f"Failed to load model '{self.name}': {e}") from e
         return
@@ -160,6 +187,12 @@ class Model(ABC):
                 del self.pipeline.model
             del self.pipeline
             self.pipeline = None
+
+    def cache_clear(self) -> None:
+        self._cache.clear()
+
+    def cache_info(self) -> dict[str, Any]:
+        return self._cache.info()
 
 
 class GuardModel(Model):
