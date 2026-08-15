@@ -104,7 +104,7 @@ class Guard(GuardModel):
         spans, chunk_texts = self._chunk_texts(text, max_seq_length, overlap)
         if not chunk_texts:
             return self._from_prediction([])
-        chunk_results = self.pipeline(chunk_texts, top_k=None)
+        chunk_results = self._predict(chunk_texts, top_k=None)
         return self._from_prediction(chunk_results)
 
     def scan_many(
@@ -114,7 +114,7 @@ class Guard(GuardModel):
         flat = [(idx, texts[idx][start:end]) for idx, spans in enumerate(all_spans) for start, end in spans]
         if not flat:
             return [self._from_prediction([]) for _ in texts]
-        chunk_results = self.pipeline([chunk_text for _, chunk_text in flat], top_k=None)
+        chunk_results = self._predict([chunk_text for _, chunk_text in flat], top_k=None)
         per_text: list[list[list[dict]]] = [[] for _ in texts]
         for (idx, _), chunk_result in zip(flat, chunk_results, strict=True):
             per_text[idx].append(chunk_result)
@@ -127,7 +127,7 @@ class Guard(GuardModel):
         if not chunk_texts:
             return self._from_prediction([])
         loop = asyncio.get_running_loop()
-        chunk_results = await loop.run_in_executor(None, functools.partial(self.pipeline, chunk_texts, top_k=None))
+        chunk_results = await loop.run_in_executor(None, functools.partial(self._predict, chunk_texts, top_k=None))
         return self._from_prediction(chunk_results)
 
     async def async_scan_many(
@@ -140,7 +140,7 @@ class Guard(GuardModel):
         loop = asyncio.get_running_loop()
         chunk_results = await loop.run_in_executor(
             None,
-            functools.partial(self.pipeline, [chunk_text for _, chunk_text in flat], top_k=None),
+            functools.partial(self._predict, [chunk_text for _, chunk_text in flat], top_k=None),
         )
         per_text: list[list[list[dict]]] = [[] for _ in texts]
         for (idx, _), chunk_result in zip(flat, chunk_results, strict=True):
@@ -162,7 +162,7 @@ class Guard(GuardModel):
         spans, chunk_texts = self._chunk_texts(text, max_seq_length, overlap)
         if not chunk_texts:
             return ("", []) if return_spans else ""
-        chunk_results = self.pipeline(chunk_texts, top_k=None)
+        chunk_results = self._predict(chunk_texts, top_k=None)
 
         flags = []
         for chunk_result in chunk_results:
@@ -190,7 +190,7 @@ class Guard(GuardModel):
         if not chunk_texts:
             return ("", []) if return_spans else ""
         loop = asyncio.get_running_loop()
-        chunk_results = await loop.run_in_executor(None, functools.partial(self.pipeline, chunk_texts, top_k=None))
+        chunk_results = await loop.run_in_executor(None, functools.partial(self._predict, chunk_texts, top_k=None))
 
         flags = []
         for chunk_result in chunk_results:

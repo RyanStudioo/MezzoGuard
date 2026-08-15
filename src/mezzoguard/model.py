@@ -5,7 +5,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
+from . import config as _config
 from ._types import DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, BaseResult
+from .cache import TextLRUCache
 
 if TYPE_CHECKING:
     import torch
@@ -33,6 +35,7 @@ class Model(ABC):
         self.torch_compile = torch_compile
         self.compile_mode = compile_mode
         self.use_onnx = use_onnx
+        self._cache = TextLRUCache()
 
         self.load_model()
 
@@ -128,13 +131,53 @@ class Model(ABC):
                 self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype)
             else:
                 self.pipeline = pipeline(self.task, model=self.name, dtype=self.dtype)
+            self._strip_token_type_ids()
         except Exception as e:
             raise RuntimeError(f"Failed to load model '{self.name}': {e}") from e
+
+    def _strip_token_type_ids(self) -> None:
+        """Remove ``token_type_ids`` from forward kwargs for models that do not accept it."""
+        import inspect
+
+        model = self.pipeline.model
+        if "token_type_ids" not in inspect.signature(model.forward).parameters:
+            original_forward = model.forward
+
+            def _forward(*args: Any, **kwargs: Any) -> Any:
+                kwargs.pop("token_type_ids", None)
+                return original_forward(*args, **kwargs)
+
+            model.forward = _forward
 
     def _resolve_onnx_dir(self) -> str:
         """Directory where exported ONNX artifacts are cached for this model."""
         safe_name = self.name.replace("/", os.sep)
         return os.path.join(os.path.expanduser("~"), ".cache", "mezzoguard", "onnx", safe_name)
+
+    def _predict(self, inputs: list[str], **kwargs: Any) -> list:
+        """Run the pipeline on ``inputs`` with an LRU cache keyed by input text.
+
+        When caching is enabled, only inputs not already in the cache are
+        passed to the pipeline; results for the rest are replayed from the
+        cache, preserving the original batch order (including duplicates).
+        """
+        if not _config.cache_enabled:
+            return self.pipeline(inputs, **kwargs)
+
+        unique_keys = list(dict.fromkeys(inputs))
+        cached = {key: self._cache.get(key) for key in unique_keys}
+        misses = [key for key, value in cached.items() if value is None]
+        fresh = dict(zip(misses, self.pipeline(misses, **kwargs), strict=True)) if misses else {}
+        by_text = {**fresh, **{key: value for key, value in cached.items() if value is not None}}
+        for key, value in fresh.items():
+            self._cache.put(key, value)
+        return [by_text[text] for text in inputs]
+
+    def cache_clear(self) -> None:
+        self._cache.clear()
+
+    def cache_info(self) -> dict[str, Any]:
+        return self._cache.info()
 
     def eject_model(self) -> None:
         if self.pipeline is not None:
