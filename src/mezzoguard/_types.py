@@ -8,12 +8,24 @@ DEFAULT_CONFIDENCE = 0.5
 PIPELINE_TASK = "text-classification"
 
 
-class Category(Enum):
+class BaseCategory(Enum):
     """Base Category enum class for all guard categories."""
+
     pass
 
 
 @dataclass
 class BaseResult:
     """Base Result class"""
+
     pass
+
+
+@dataclass
+class Span:
+    """A flagged region of text. `start` and `end` are character offsets into the original text."""
+
+    start: int
+    end: int
+    category: BaseCategory | None = None
+    replacement: str = ""

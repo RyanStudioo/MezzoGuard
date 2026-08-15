@@ -1,6 +1,5 @@
-from ..base_classes import BasePolicy, PolicyResult
+from ..base_classes import BasePolicy
 from .categories import Category
-from .result import Result
 
 
 class ContentPolicy(BasePolicy):

@@ -1,15 +1,16 @@
+import functools
 import json
 import os
 import warnings
-from abc import ABC, abstractmethod
 from typing import Literal, Self
 
 from ._types import (
-    BaseResult,
-    Category,
     DEFAULT_MAX_SEQ_LENGTH,
     DEFAULT_OVERLAP,
     DEFAULT_REDACTED_LABEL,
+    BaseCategory,
+    BaseResult,
+    Span,
 )
 
 CONFIG_FILENAME = ".mezzoguard"
@@ -56,10 +57,10 @@ class ModelConfig:
         if not os.path.isfile(path):
             return None
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
-            warnings.warn(f"Failed to read config file {path}: {e}")
+            warnings.warn(f"Failed to read config file {path}: {e}", stacklevel=2)
             return None
         return cls.from_dict(data)
 
@@ -95,31 +96,34 @@ class ModelConfig:
         return os.path.exists(model_name)
 
     @classmethod
+    @functools.lru_cache(maxsize=128)
     def get_deprecation_from_readme(cls, model_name: str) -> dict | None:
         """Parse README.md from model repo for new_version deprecation field."""
         if cls._is_local_path(model_name):
             readme_path = os.path.join(model_name, "README.md")
             if os.path.isfile(readme_path):
                 try:
-                    with open(readme_path, "r", encoding="utf-8") as f:
+                    with open(readme_path, encoding="utf-8") as f:
                         return cls._parse_readme(f.read())
                 except OSError:
                     return None
         else:
             try:
                 from huggingface_hub import hf_hub_download
+
                 downloaded = hf_hub_download(
                     repo_id=model_name,
                     filename="README.md",
                     repo_type="model",
                 )
-                with open(downloaded, "r", encoding="utf-8") as f:
+                with open(downloaded, encoding="utf-8") as f:
                     return cls._parse_readme(f.read())
             except (OSError, ImportError):
                 return None
         return None
 
     @classmethod
+    @functools.lru_cache(maxsize=128)
     def from_model_name(cls, model_name: str) -> "ModelConfig | None":
         config = None
 
@@ -129,6 +133,7 @@ class ModelConfig:
         else:
             try:
                 from huggingface_hub import hf_hub_download
+
                 downloaded = hf_hub_download(
                     repo_id=model_name,
                     filename=CONFIG_FILENAME,
@@ -166,12 +171,15 @@ class ModelConfig:
 
 class BaseConfig:
     """Base Config class"""
+
     def __init__(self, model_type: Literal["prompt_guard", "content_guard"]):
         self.model_type = model_type
 
 
 class PolicyResult(BaseResult):
-    def __init__(self, scores: dict[Category, float], violated: dict[Category, bool], categories: list[Category]):
+    def __init__(
+        self, scores: dict[BaseCategory, float], violated: dict[BaseCategory, bool], categories: list[BaseCategory]
+    ):
         self.scores = scores
         self.violated = violated
         self.categories = categories
@@ -190,21 +198,22 @@ class PolicyResult(BaseResult):
     def is_unsafe(self) -> bool:
         return any(self.violated.values())
 
-    def get_violated_categories(self) -> list[Category]:
+    def get_violated_categories(self) -> list[BaseCategory]:
         return [category for category, violated in self.violated.items() if violated]
 
 
-class BasePolicy(ABC):
+class BasePolicy:
     """Base Policy class"""
-    def __init__(self):
-        self._mapping: dict[Category, float] = {}
 
-    def add_threshold(self, category: Category, threshold: float) -> Self:
+    def __init__(self):
+        self._mapping: dict[BaseCategory, float] = {}
+
+    def add_threshold(self, category: BaseCategory, threshold: float) -> Self:
         """Add a threshold to a category"""
         self._mapping[category] = threshold
         return self
 
-    def get_threshold(self, category: Category) -> float:
+    def get_threshold(self, category: BaseCategory) -> float:
         """Get the threshold of a category"""
         if category not in self._mapping:
             return 0.0
@@ -212,12 +221,64 @@ class BasePolicy(ABC):
 
     def evaluate(self, result: BaseResult, **kwargs) -> PolicyResult:
         """Evaluate a result from a guard scan"""
-        violated: dict[Category, bool] = {}
+        violated: dict[BaseCategory, bool] = {}
         for key, value in result.scores.items():
             threshold = self.get_threshold(key)
             violated[key] = value >= threshold
         categories = list(result.scores.keys())
         return PolicyResult(scores=result.scores, violated=violated, categories=categories)
+
+
+def _redact_text_with_spans(
+    text: str,
+    spans: list[tuple[int, int]],
+    flags: list[tuple[bool, BaseCategory | None]],
+    replace: str | dict[BaseCategory, str],
+) -> tuple[str, list[Span]]:
+    """Shared redaction core used by prompt and content guards.
+
+    Rebuilds ``text`` chunk by chunk, replacing flagged runs of consecutive
+    chunks with a single replacement. ``spans`` are ``(start_char, end_char)``
+    pairs into the original text (see ``Model._chunk_text``); consecutive chunks
+    may overlap, and overlapping regions are only emitted once, so the result
+    preserves the original text exactly except for flagged regions.
+    """
+    if isinstance(replace, str):
+
+        def replacement_for(category: BaseCategory | None) -> str:
+            return replace
+    else:
+
+        def replacement_for(category: BaseCategory | None) -> str:
+            return replace.get(category, DEFAULT_REDACTED_LABEL)
+
+    parts = []
+    redaction_spans = []
+    cursor = 0
+    i = 0
+    n = len(spans)
+    while i < n:
+        start, end = spans[i]
+        if start == end or end <= cursor:
+            i += 1
+            continue
+        flagged, category = flags[i]
+        if not flagged:
+            parts.append(text[cursor:end])
+            cursor = end
+            i += 1
+        else:
+            merge_end = end
+            j = i
+            while j + 1 < n and flags[j + 1][0] and spans[j + 1][1] > merge_end:
+                j += 1
+                merge_end = spans[j][1]
+            replacement = replacement_for(category)
+            parts.append(replacement)
+            redaction_spans.append(Span(start=cursor, end=merge_end, category=category, replacement=replacement))
+            cursor = merge_end
+            i = j + 1
+    return "".join(parts), redaction_spans
 
 
 def _init_guard_config(name: str, CategoryEnum: type, ConfigClass: type, models_config: dict):
@@ -228,7 +289,7 @@ def _init_guard_config(name: str, CategoryEnum: type, ConfigClass: type, models_
     from . import _types
 
     model_config = ModelConfig.from_model_name(name)
-    config = models_config.get(name, None)
+    config = models_config.get(name)
 
     if model_config and not config:
         mappings = {}
@@ -236,7 +297,7 @@ def _init_guard_config(name: str, CategoryEnum: type, ConfigClass: type, models_
             try:
                 cat = CategoryEnum(cat_str)
             except ValueError:
-                cat = _types.Category(cat_str)
+                cat = _types.BaseCategory(cat_str)
             mappings[label] = cat
 
         safe_cat = None
@@ -244,7 +305,7 @@ def _init_guard_config(name: str, CategoryEnum: type, ConfigClass: type, models_
             try:
                 safe_cat = CategoryEnum(model_config.safe_category)
             except ValueError:
-                safe_cat = _types.Category(model_config.safe_category)
+                safe_cat = _types.BaseCategory(model_config.safe_category)
 
         if safe_cat is not None:
             config = ConfigClass(mappings=mappings, safe_category=safe_cat)
@@ -253,7 +314,8 @@ def _init_guard_config(name: str, CategoryEnum: type, ConfigClass: type, models_
 
     if not config:
         warnings.warn(
-            f"No preset config found for model {name}. You may need to provide a custom config."
+            f"No preset config found for model {name}. You may need to provide a custom config.",
+            stacklevel=2,
         )
 
     return model_config, config
@@ -268,6 +330,7 @@ def _make_redact_before_exec(redact_method, async_redact_method):
     def decorator(param, max_seq_length, overlap, replace, policy, confidence):
         def outer_decorator(func):
             if asyncio.iscoroutinefunction(func):
+
                 @functools.wraps(func)
                 async def async_wrapper(*args, **kwargs):
                     sig = inspect.signature(func)
@@ -276,13 +339,19 @@ def _make_redact_before_exec(redact_method, async_redact_method):
                     value = bound.arguments.get(param)
                     if value is not None:
                         redacted = await async_redact_method(
-                            value, max_seq_length, overlap, replace,
-                            policy=policy, confidence=confidence,
+                            value,
+                            max_seq_length,
+                            overlap,
+                            replace,
+                            policy=policy,
+                            confidence=confidence,
                         )
                         bound.arguments[param] = redacted
                     return await func(*bound.args, **bound.kwargs)
+
                 return async_wrapper
             else:
+
                 @functools.wraps(func)
                 def wrapper(*args, **kwargs):
                     sig = inspect.signature(func)
@@ -291,13 +360,20 @@ def _make_redact_before_exec(redact_method, async_redact_method):
                     value = bound.arguments.get(param)
                     if value is not None:
                         redacted = redact_method(
-                            value, max_seq_length, overlap, replace,
-                            policy=policy, confidence=confidence,
+                            value,
+                            max_seq_length,
+                            overlap,
+                            replace,
+                            policy=policy,
+                            confidence=confidence,
                         )
                         bound.arguments[param] = redacted
                     return func(*bound.args, **bound.kwargs)
+
                 return wrapper
+
         return outer_decorator
+
     return decorator
 
 
@@ -313,6 +389,7 @@ def _make_scan_before_exec(scan_method, async_scan_method, on_unsafe):
     def decorator(param, max_seq_length, overlap, confidence):
         def outer_decorator(func):
             if asyncio.iscoroutinefunction(func):
+
                 @functools.wraps(func)
                 async def async_wrapper(*args, **kwargs):
                     sig = inspect.signature(func)
@@ -323,8 +400,10 @@ def _make_scan_before_exec(scan_method, async_scan_method, on_unsafe):
                         result = await async_scan_method(value, max_seq_length, overlap)
                         on_unsafe(result, confidence)
                     return await func(*bound.args, **bound.kwargs)
+
                 return async_wrapper
             else:
+
                 @functools.wraps(func)
                 def wrapper(*args, **kwargs):
                     sig = inspect.signature(func)
@@ -335,6 +414,9 @@ def _make_scan_before_exec(scan_method, async_scan_method, on_unsafe):
                         result = scan_method(value, max_seq_length, overlap)
                         on_unsafe(result, confidence)
                     return func(*bound.args, **bound.kwargs)
+
                 return wrapper
+
         return outer_decorator
+
     return decorator

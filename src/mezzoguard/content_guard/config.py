@@ -4,12 +4,11 @@ from .categories import Category
 
 class ContentGuardConfig(BaseConfig):
     """Configurations for Content Guard"""
+
     def __init__(self, mappings: dict[str, Category]):
         super().__init__("content_guard")
         self.mappings = mappings
-        self._normalized_mappings = {
-            self._normalize_label(label): category for label, category in mappings.items()
-        }
+        self._normalized_mappings = {self._normalize_label(label): category for label, category in mappings.items()}
 
     def _normalize_label(self, label: str) -> str:
         return label.strip().lower().replace("_", "-").replace(" ", "-")
@@ -29,6 +28,7 @@ class ContentGuardConfig(BaseConfig):
                 valid.append(label)
         return valid
 
+
 CONFIGS = {
     "mezzo-content-guard-preview": ContentGuardConfig(
         mappings={
@@ -37,7 +37,7 @@ CONFIGS = {
             "Self-Harm": Category.SELF_HARM,
             "Sexual": Category.SEXUAL,
             "Toxic": Category.TOXIC,
-            "Violence": Category.VIOLENCE
+            "Violence": Category.VIOLENCE,
         }
     ),
     "mezzo-content-guard-v1": ContentGuardConfig(
@@ -46,9 +46,9 @@ CONFIGS = {
             "self-harm": Category.SELF_HARM,
             "sexual": Category.SEXUAL,
             "toxic": Category.TOXIC,
-            "violence": Category.VIOLENCE
+            "violence": Category.VIOLENCE,
         }
-    )
+    ),
 }
 
 MODELS_CONFIG = {
@@ -56,6 +56,12 @@ MODELS_CONFIG = {
     "RyanStudio/Mezzo-Content-Guard-Large": CONFIGS["mezzo-content-guard-v1"],
     "RyanStudio/Mezzo-Content-Guard-Base": CONFIGS["mezzo-content-guard-v1"],
     "RyanStudio/Mezzo-Content-Guard-Small": CONFIGS["mezzo-content-guard-v1"],
+    "RyanStudio/Mezzo-Content-Guard-v1.5-Large": CONFIGS["mezzo-content-guard-v1"],
+    "RyanStudio/Mezzo-Content-Guard-v1.5-Base": CONFIGS["mezzo-content-guard-v1"],
+    "RyanStudio/Mezzo-Content-Guard-v1.5-Small": CONFIGS["mezzo-content-guard-v1"],
+    "RyanStudio/Mezzo-Content-Guard-v1.5-Tiny": CONFIGS["mezzo-content-guard-v1"],
+    "RyanStudio/Mezzo-Content-Guard-v1.5-Nano": CONFIGS["mezzo-content-guard-v1"],
+    "RyanStudio/Mezzo-Content-Guard-v1.5-Nano-Preview": CONFIGS["mezzo-content-guard-v1"],
 }
 
 __all__ = ["ContentGuardConfig", "MODELS_CONFIG"]

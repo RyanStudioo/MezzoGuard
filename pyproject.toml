@@ -4,11 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mezzo-guard"
-version = "0.1.0-alpha.6"
+dynamic = ["version"]
 description = "Mezzo Guard is a Python SDK designed to provide AI-based content moderation and security for applications."
 requires-python = ">=3.11"
 dependencies = [
-    "transformers",
+    "transformers>=4.51,<6",
+    "huggingface_hub>=0.25",
 ]
 readme = "README.md"
 authors = [
@@ -34,5 +35,30 @@ keywords = [
 [project.optional-dependencies]
 onnx = ["optimum[onnxruntime]"]
 
+[tool.hatch.version]
+path = "src/mezzoguard/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/mezzoguard"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/mezzoguard/py.typed" = "mezzoguard/py.typed"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["UP007"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.3",
+]

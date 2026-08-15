@@ -1,7 +1,7 @@
-from .result import Result
 from .categories import Category
-from .guard import Guard
 from .config import ContentGuardConfig
+from .guard import Guard
 from .policy import ContentPolicy
+from .result import Result
 
-__all__ = ["Guard", "Category", "ContentGuardConfig", "ContentPolicy"]
+__all__ = ["Guard", "Category", "ContentGuardConfig", "ContentPolicy", "Result"]

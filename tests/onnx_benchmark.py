@@ -1,5 +1,5 @@
-import time
 import statistics
+import time
 
 from mezzoguard import CONTENTGUARD
 from mezzoguard.content_guard import Guard
@@ -72,7 +72,7 @@ if __name__ == "__main__":
         print_result(onnx)
 
     speedup = standard["mean_ms"] / onnx["mean_ms"]
-    print(f"\n=== Summary ===")
+    print("\n=== Summary ===")
     print(f"PyTorch mean: {standard['mean_ms']:.2f} ms")
     print(f"ONNX mean:    {onnx['mean_ms']:.2f} ms")
     print(f"Speedup:      {speedup:.2f}x")

@@ -4,9 +4,8 @@ from .categories import Category
 
 class PromptGuardConfig(BaseConfig):
     """Configurations for Prompt Guard"""
-    def __init__(
-        self, mappings: dict[str, Category], safe_category: Category = Category.SAFE
-    ):
+
+    def __init__(self, mappings: dict[str, Category], safe_category: Category = Category.SAFE):
         super().__init__("prompt_guard")
         self.mappings = mappings
         self.safe_category = safe_category
@@ -22,6 +21,7 @@ class PromptGuardConfig(BaseConfig):
             if cat == category:
                 valid.append(label)
         return valid
+
 
 CONFIGS = {
     "safe-unsafe": PromptGuardConfig(

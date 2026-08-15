@@ -1,35 +1,47 @@
 import asyncio
+import functools
 import warnings
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from .categories import Category
-from .result import Result
-from .config import MODELS_CONFIG, ContentGuardConfig
-from .policy import ContentPolicy
+from .._types import DEFAULT_CONFIDENCE, DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, Span
+from ..base_classes import (
+    ModelConfig,
+    _init_guard_config,
+    _make_redact_before_exec,
+    _make_scan_before_exec,
+    _redact_text_with_spans,
+)
 from ..errors import UnsafeContentError
 from ..model import GuardModel
-from ..base_classes import ModelConfig, _init_guard_config, _make_redact_before_exec, _make_scan_before_exec
-from .._types import DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, DEFAULT_CONFIDENCE
+from .categories import Category
+from .config import MODELS_CONFIG, ContentGuardConfig
+from .policy import ContentPolicy
+from .result import Result
 
 
 class Guard(GuardModel):
     """A Content Guard Model"""
+
     def __init__(self, name: str, **kwargs: Any):
         super().__init__(name, task="text-classification", **kwargs)
 
         self.model_config: ModelConfig | None = None
-        self.model_config, self.config = _init_guard_config(
-            name, Category, ContentGuardConfig, MODELS_CONFIG
-        )
+        self.model_config, self.config = _init_guard_config(name, Category, ContentGuardConfig, MODELS_CONFIG)
 
-        readme_deprecation = ModelConfig.get_deprecation_from_readme(name)
-        if readme_deprecation:
+        if self.model_config is not None and self.model_config.deprecated:
             warnings.warn(
-                readme_deprecation["deprecated_message"],
+                self.model_config.deprecated_message,
                 DeprecationWarning,
                 stacklevel=2,
             )
+        else:
+            readme_deprecation = ModelConfig.get_deprecation_from_readme(name)
+            if readme_deprecation:
+                warnings.warn(
+                    readme_deprecation["deprecated_message"],
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
 
     def _get_category_for_label(self, label: str) -> Category | None:
         try:
@@ -66,87 +78,154 @@ class Guard(GuardModel):
             default_policy.add_threshold(category, confidence)
         return default_policy
 
-    def _chunk_matches_policy(self, chunk_result: list[dict], policy: ContentPolicy) -> bool:
+    def _chunk_violation(self, chunk_result: list[dict], policy: ContentPolicy) -> Category | None:
         scores = self._scores_from_chunk(chunk_result)
-        result = policy.evaluate(Result(chunks=[chunk_result], scores=scores))
-        return bool(result)
+        verdict = policy.evaluate(Result(chunks=[chunk_result], scores=scores))
+        if not verdict:
+            return None
+        violated = verdict.get_violated_categories()
+        if not violated:
+            return None
+        return max(violated, key=lambda category: scores.get(category, 0.0))
 
     def _on_unsafe_content(self, result: Result, confidence: float) -> None:
         violated = []
         for cat, score in result.scores.items():
-            if score > confidence:
+            if score >= confidence:
                 violated.append({cat.value: score})
         if violated:
             raise UnsafeContentError(violated)
 
+    def _chunk_texts(self, text: str, max_seq_length: int, overlap: int) -> tuple[list[tuple[int, int]], list[str]]:
+        spans = self._chunk_text(text, max_seq_length, overlap)
+        return spans, [text[start:end] for start, end in spans]
+
     def scan(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP) -> Result:
-        chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
-        with ThreadPoolExecutor() as executor:
-            futures = [executor.submit(self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
-            chunk_results = [future.result() for future in futures]
+        spans, chunk_texts = self._chunk_texts(text, max_seq_length, overlap)
+        if not chunk_texts:
+            return self._from_prediction([])
+        chunk_results = self.pipeline(chunk_texts, top_k=None)
         return self._from_prediction(chunk_results)
 
-    async def async_scan(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP) -> Result:
-        chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
+    def scan_many(
+        self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
+    ) -> list[Result]:
+        all_spans = [self._chunk_text(t, max_seq_length, overlap) for t in texts]
+        flat = [(idx, texts[idx][start:end]) for idx, spans in enumerate(all_spans) for start, end in spans]
+        if not flat:
+            return [self._from_prediction([]) for _ in texts]
+        chunk_results = self.pipeline([chunk_text for _, chunk_text in flat], top_k=None)
+        per_text: list[list[list[dict]]] = [[] for _ in texts]
+        for (idx, _), chunk_result in zip(flat, chunk_results, strict=True):
+            per_text[idx].append(chunk_result)
+        return [self._from_prediction(chunks) for chunks in per_text]
+
+    async def async_scan(
+        self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
+    ) -> Result:
+        spans, chunk_texts = self._chunk_texts(text, max_seq_length, overlap)
+        if not chunk_texts:
+            return self._from_prediction([])
         loop = asyncio.get_running_loop()
-        with ThreadPoolExecutor() as executor:
-            tasks = [loop.run_in_executor(executor, self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
-            chunk_results = await asyncio.gather(*tasks)
+        chunk_results = await loop.run_in_executor(None, functools.partial(self.pipeline, chunk_texts, top_k=None))
         return self._from_prediction(chunk_results)
 
-    def redact(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP,
-               replace: str = DEFAULT_REDACTED_LABEL, policy: ContentPolicy | None = None, confidence: float = DEFAULT_CONFIDENCE, **kwargs: Any) -> str:
-        policy = self._resolve_redaction_policy(policy, confidence)
-        chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
-        redacted_chunks = []
-        with ThreadPoolExecutor() as executor:
-            futures = [executor.submit(self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
-
-            previous_flagged = False
-            for chunk, future in zip(chunks, futures):
-                result = future.result()
-                if self._chunk_matches_policy(result, policy):
-                    if previous_flagged:
-                        continue
-                    redacted_chunks.append(replace)
-                    previous_flagged = True
-                else:
-                    redacted_chunks.append(self._reform_tokenized_chunk(chunk))
-                    previous_flagged = False
-        return " ".join(redacted_chunks)
-
-    async def async_redact(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP,
-                           replace: str = DEFAULT_REDACTED_LABEL, policy: ContentPolicy | None = None, confidence: float = DEFAULT_CONFIDENCE, **kwargs: Any) -> str:
-        policy = self._resolve_redaction_policy(policy, confidence)
-        chunks = self._split_tokens_into_chunks(text, max_seq_length, overlap)
+    async def async_scan_many(
+        self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
+    ) -> list[Result]:
+        all_spans = [self._chunk_text(t, max_seq_length, overlap) for t in texts]
+        flat = [(idx, texts[idx][start:end]) for idx, spans in enumerate(all_spans) for start, end in spans]
+        if not flat:
+            return [self._from_prediction([]) for _ in texts]
         loop = asyncio.get_running_loop()
-        with ThreadPoolExecutor() as executor:
-            tasks = [loop.run_in_executor(executor, self._predict_tokenized_text_topk_none, chunk) for chunk in chunks]
-            chunk_results = await asyncio.gather(*tasks)
+        chunk_results = await loop.run_in_executor(
+            None,
+            functools.partial(self.pipeline, [chunk_text for _, chunk_text in flat], top_k=None),
+        )
+        per_text: list[list[list[dict]]] = [[] for _ in texts]
+        for (idx, _), chunk_result in zip(flat, chunk_results, strict=True):
+            per_text[idx].append(chunk_result)
+        return [self._from_prediction(chunks) for chunks in per_text]
 
-        redacted_chunks = []
-        previous_flagged = False
-        for chunk, result in zip(chunks, chunk_results):
-            if self._chunk_matches_policy(result, policy):
-                if previous_flagged:
-                    continue
-                redacted_chunks.append(replace)
-                previous_flagged = True
-            else:
-                redacted_chunks.append(self._reform_tokenized_chunk(chunk))
-                previous_flagged = False
-        return " ".join(redacted_chunks)
+    def redact(
+        self,
+        text: str,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str | dict[Category, str] = DEFAULT_REDACTED_LABEL,
+        policy: ContentPolicy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        return_spans: bool = False,
+        **kwargs: Any,
+    ) -> str | tuple[str, list[Span]]:
+        policy = self._resolve_redaction_policy(policy, confidence)
+        spans, chunk_texts = self._chunk_texts(text, max_seq_length, overlap)
+        if not chunk_texts:
+            return ("", []) if return_spans else ""
+        chunk_results = self.pipeline(chunk_texts, top_k=None)
 
-    def redact_before_exec(self, param: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP, replace: str = DEFAULT_REDACTED_LABEL,
-                           policy: ContentPolicy | None = None, confidence: float = DEFAULT_CONFIDENCE, **kwargs: Any):
+        flags = []
+        for chunk_result in chunk_results:
+            category = self._chunk_violation(chunk_result, policy)
+            flags.append((category is not None, category))
+
+        redacted, redaction_spans = _redact_text_with_spans(text, spans, flags, replace)
+        if return_spans:
+            return redacted, redaction_spans
+        return redacted
+
+    async def async_redact(
+        self,
+        text: str,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str | dict[Category, str] = DEFAULT_REDACTED_LABEL,
+        policy: ContentPolicy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        return_spans: bool = False,
+        **kwargs: Any,
+    ) -> str | tuple[str, list[Span]]:
+        policy = self._resolve_redaction_policy(policy, confidence)
+        spans, chunk_texts = self._chunk_texts(text, max_seq_length, overlap)
+        if not chunk_texts:
+            return ("", []) if return_spans else ""
+        loop = asyncio.get_running_loop()
+        chunk_results = await loop.run_in_executor(None, functools.partial(self.pipeline, chunk_texts, top_k=None))
+
+        flags = []
+        for chunk_result in chunk_results:
+            category = self._chunk_violation(chunk_result, policy)
+            flags.append((category is not None, category))
+
+        redacted, redaction_spans = _redact_text_with_spans(text, spans, flags, replace)
+        if return_spans:
+            return redacted, redaction_spans
+        return redacted
+
+    def redact_before_exec(
+        self,
+        param: str,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str = DEFAULT_REDACTED_LABEL,
+        policy: ContentPolicy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        **kwargs: Any,
+    ):
         return _make_redact_before_exec(self.redact, self.async_redact)(
             param, max_seq_length, overlap, replace, policy, confidence
         )
 
-    def scan_before_exec(self, param: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP,
-                         confidence: float = DEFAULT_CONFIDENCE):
+    def scan_before_exec(
+        self,
+        param: str,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        confidence: float = DEFAULT_CONFIDENCE,
+    ):
         return _make_scan_before_exec(self.scan, self.async_scan, self._on_unsafe_content)(
             param, max_seq_length, overlap, confidence
         )
+
 
 __all__ = ["Guard"]
