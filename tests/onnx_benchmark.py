@@ -56,7 +56,7 @@ def print_result(result: dict) -> None:
 
 
 if __name__ == "__main__":
-    model_name = CONTENTGUARD.MEZZO_CONTENT_GUARD_SMALL
+    model_name = CONTENTGUARD.MEZZO_CONTENT_GUARD_V1_5_NANO
 
     print(f"Model: {model_name}")
     print(f"Messages: {len(MESSAGES)}")
@@ -67,7 +67,7 @@ if __name__ == "__main__":
         standard = benchmark(guard, "PyTorch (standard)")
         print_result(standard)
 
-    with Guard(name=model_name, use_onnx=True) as guard:
+    with Guard(name=model_name, use_onnx=True, dtype="int8") as guard:
         onnx = benchmark(guard, "ONNX")
         print_result(onnx)
 
