@@ -7,5 +7,9 @@ class Result(BaseResult):
         self._chunks = chunks
         self.scores = scores
 
+    @property
+    def chunks(self) -> list[list[dict]]:
+        return self._chunks
+
 
 __all__ = ["Result"]

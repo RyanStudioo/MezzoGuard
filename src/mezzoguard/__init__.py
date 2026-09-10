@@ -14,7 +14,7 @@ from .content_guard import (
 from .content_guard import (
     Result as ContentResult,
 )
-from .errors import UnsafeContentError, UnsafePromptError
+from .errors import MezzoGuardServerError, UnsafeContentError, UnsafePromptError
 from .preset_models import CONTENTGUARD, PROMPTGUARD, get_recommended_model, view_available_models
 from .prompt_guard import (
     Category as PromptCategory,
@@ -29,6 +29,7 @@ from .prompt_guard import (
 from .prompt_guard import (
     Result as PromptResult,
 )
+from .remote import APIContentGuard, APIPromptGuard
 
 __version__ = "0.1.0a6"
 
@@ -43,6 +44,7 @@ __all__ = [
     "CONFIG_FILENAME",
     "UnsafeContentError",
     "UnsafePromptError",
+    "MezzoGuardServerError",
     "prompt_guard",
     "content_guard",
     "ContentCategory",
@@ -55,5 +57,7 @@ __all__ = [
     "PromptGuardConfig",
     "PromptGuard",
     "PromptResult",
+    "APIPromptGuard",
+    "APIContentGuard",
     "__version__",
 ]

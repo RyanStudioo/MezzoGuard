@@ -33,6 +33,7 @@ class Model(ABC):
         torch_compile: bool = False,
         compile_mode: str = "default",
         use_onnx: bool = False,
+        device: str | None = None,
     ):
         if torch_compile and use_onnx:
             raise ValueError("torch_compile and use_onnx cannot be used together")
@@ -44,6 +45,7 @@ class Model(ABC):
         self.torch_compile = torch_compile
         self.compile_mode = compile_mode
         self.use_onnx = use_onnx
+        self.device = device
         self._cache = TextLRUCache()
 
         self.load_model()
@@ -116,18 +118,26 @@ class Model(ABC):
         if self.dtype == "auto":
             self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
+        device = self._resolve_device(torch)
+
         try:
             if self.use_onnx:
                 from optimum.onnxruntime import ORTModelForSequenceClassification
                 from transformers import AutoTokenizer
 
                 export_dir = self._resolve_onnx_dir()
+                provider, provider_options = self._resolve_onnx_provider(device)
+                ort_kwargs: dict[str, Any] = {}
+                if provider is not None:
+                    ort_kwargs["provider"] = provider
+                if provider_options:
+                    ort_kwargs["provider_options"] = provider_options
                 if os.path.isdir(export_dir):
                     tokenizer = AutoTokenizer.from_pretrained(export_dir)
-                    model = ORTModelForSequenceClassification.from_pretrained(export_dir, export=False)
+                    model = ORTModelForSequenceClassification.from_pretrained(export_dir, export=False, **ort_kwargs)
                 else:
                     tokenizer = AutoTokenizer.from_pretrained(self.name)
-                    model = ORTModelForSequenceClassification.from_pretrained(self.name, export=True)
+                    model = ORTModelForSequenceClassification.from_pretrained(self.name, export=True, **ort_kwargs)
                     tokenizer.save_pretrained(export_dir)
                     model.save_pretrained(export_dir)
                 self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype)
@@ -137,12 +147,33 @@ class Model(ABC):
                 tokenizer = AutoTokenizer.from_pretrained(self.name)
                 model = AutoModelForSequenceClassification.from_pretrained(self.name, torch_dtype=self.dtype)
                 model.forward = torch.compile(model.forward, mode=self.compile_mode, dynamic=True)
-                self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype)
+                self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype, device=device)
             else:
-                self.pipeline = pipeline(self.task, model=self.name, dtype=self.dtype)
+                self.pipeline = pipeline(self.task, model=self.name, dtype=self.dtype, device=device)
             self._strip_token_type_ids()
         except Exception as e:
             raise RuntimeError(f"Failed to load model '{self.name}': {e}") from e
+
+    def _resolve_device(self, torch) -> str | None:
+        """Resolve the requested device, expanding ``"auto"`` to CUDA when available."""
+        if self.device is None:
+            return None
+        if self.device == "auto":
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        return self.device
+
+    def _resolve_onnx_provider(self, device: str | None) -> tuple[str | None, dict]:
+        """Map a device string to an ONNX Runtime execution provider."""
+        if device is None:
+            return None, {}
+        if device == "cpu":
+            return "CPUExecutionProvider", {}
+        if device == "cuda" or device.startswith("cuda:"):
+            provider_options = {}
+            if ":" in device:
+                provider_options["device_id"] = int(device.split(":", 1)[1])
+            return "CUDAExecutionProvider", provider_options
+        raise ValueError(f"ONNX backend does not support device '{device}'. Use 'cpu' or 'cuda'.")
 
     def _strip_token_type_ids(self) -> None:
         """Remove ``token_type_ids`` from forward kwargs for models that do not accept it."""

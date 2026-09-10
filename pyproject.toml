@@ -34,6 +34,11 @@ keywords = [
 
 [project.optional-dependencies]
 onnx = ["optimum[onnxruntime]"]
+server = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.30,<1"]
+client = ["httpx>=0.27,<1"]
+
+[project.scripts]
+mezzo-guard = "mezzoguard.cli:main"
 
 [tool.hatch.version]
 path = "src/mezzoguard/__init__.py"
@@ -61,4 +66,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.3",
+    "httpx>=0.27,<1",
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
 ]

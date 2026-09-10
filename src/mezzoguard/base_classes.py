@@ -219,6 +219,10 @@ class BasePolicy:
             return 0.0
         return self._mapping[category]
 
+    def to_dict(self) -> dict[str, float]:
+        """Serialize thresholds to a plain ``{category_value: threshold}`` mapping."""
+        return {getattr(category, "value", str(category)): threshold for category, threshold in self._mapping.items()}
+
     def evaluate(self, result: BaseResult, **kwargs) -> PolicyResult:
         """Evaluate a result from a guard scan"""
         violated: dict[BaseCategory, bool] = {}
