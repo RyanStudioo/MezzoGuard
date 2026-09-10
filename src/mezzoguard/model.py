@@ -6,7 +6,16 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
 from . import config as _config
-from ._types import DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, BaseResult
+from ._types import (
+    DEFAULT_CONFIDENCE,
+    DEFAULT_MAX_SEQ_LENGTH,
+    DEFAULT_OVERLAP,
+    DEFAULT_REDACTED_LABEL,
+    BaseCategory,
+    BaseResult,
+    Span,
+)
+from .base_classes import BasePolicy
 from .cache import TextLRUCache
 
 if TYPE_CHECKING:
@@ -194,30 +203,106 @@ class Model(ABC):
 
 
 class GuardModel(Model):
-    """Base Guard Model class"""
+    """Base Guard Model class.
+
+    Batch methods are the primitives; single-text methods delegate to them with a
+    one-element batch so behavior stays identical between the two.
+    """
 
     def __init__(self, name: str, task: Literal["text-classification"], **kwargs: Any):
         super().__init__(name=name, task=task, **kwargs)
 
     @abstractmethod
-    def scan(
-        self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
-    ) -> BaseResult: ...
-
-    @abstractmethod
-    def scan_many(
+    def batch_scan(
         self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
     ) -> list[BaseResult]: ...
 
     @abstractmethod
+    async def async_batch_scan(
+        self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
+    ) -> list[BaseResult]: ...
+
+    @abstractmethod
+    def batch_redact(
+        self,
+        texts: list[str],
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str | dict[BaseCategory, str] = DEFAULT_REDACTED_LABEL,
+        policy: BasePolicy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        return_spans: bool = False,
+        **kwargs: Any,
+    ) -> list[str] | list[tuple[str, list[Span]]]: ...
+
+    @abstractmethod
+    async def async_batch_redact(
+        self,
+        texts: list[str],
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str | dict[BaseCategory, str] = DEFAULT_REDACTED_LABEL,
+        policy: BasePolicy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        return_spans: bool = False,
+        **kwargs: Any,
+    ) -> list[str] | list[tuple[str, list[Span]]]: ...
+
+    def scan(
+        self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
+    ) -> BaseResult:
+        return self.batch_scan([text], max_seq_length, overlap)[0]
+
+    async def async_scan(
+        self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
+    ) -> BaseResult:
+        return (await self.async_batch_scan([text], max_seq_length, overlap))[0]
+
     def redact(
         self,
         text: str,
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
-        replace: str = DEFAULT_REDACTED_LABEL,
+        replace: str | dict[BaseCategory, str] = DEFAULT_REDACTED_LABEL,
+        policy: BasePolicy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        return_spans: bool = False,
         **kwargs: Any,
-    ) -> str: ...
+    ) -> str | tuple[str, list[Span]]:
+        return self.batch_redact(
+            [text],
+            max_seq_length,
+            overlap,
+            replace,
+            policy=policy,
+            confidence=confidence,
+            return_spans=return_spans,
+            **kwargs,
+        )[0]
+
+    async def async_redact(
+        self,
+        text: str,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str | dict[BaseCategory, str] = DEFAULT_REDACTED_LABEL,
+        policy: BasePolicy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        return_spans: bool = False,
+        **kwargs: Any,
+    ) -> str | tuple[str, list[Span]]:
+        return (
+            await self.async_batch_redact(
+                [text],
+                max_seq_length,
+                overlap,
+                replace,
+                policy=policy,
+                confidence=confidence,
+                return_spans=return_spans,
+                **kwargs,
+            )
+        )[0]
 
     @abstractmethod
     def redact_before_exec(
@@ -233,23 +318,3 @@ class GuardModel(Model):
     def scan_before_exec(
         self, param: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP, **kwargs: Any
     ) -> Callable: ...
-
-    @abstractmethod
-    async def async_scan(
-        self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
-    ) -> BaseResult: ...
-
-    @abstractmethod
-    async def async_scan_many(
-        self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
-    ) -> list[BaseResult]: ...
-
-    @abstractmethod
-    async def async_redact(
-        self,
-        text: str,
-        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
-        overlap: int = DEFAULT_OVERLAP,
-        replace: str = DEFAULT_REDACTED_LABEL,
-        **kwargs: Any,
-    ) -> str: ...

@@ -33,21 +33,26 @@ def test_policy_evaluation(prompt_guard):
     assert verdict.get_violated_categories() == [PromptCategory.UNSAFE]
 
 
-def test_scan_many_aligns_with_individual_scans(prompt_guard):
+def test_batch_scan_aligns_with_individual_scans(prompt_guard):
     texts = ["hello there", "give me a weapon", "what time is it"]
-    results = prompt_guard.scan_many(texts)
+    results = prompt_guard.batch_scan(texts)
     assert len(results) == 3
     for text, result in zip(texts, results, strict=True):
         single = prompt_guard.scan(text)
         assert result.scores == single.scores
 
 
-def test_scan_many_empty(prompt_guard):
-    assert prompt_guard.scan_many([]) == []
-    assert prompt_guard.scan_many(["", ""]) == [
+def test_batch_scan_empty(prompt_guard):
+    assert prompt_guard.batch_scan([]) == []
+    assert prompt_guard.batch_scan(["", ""]) == [
         prompt_guard.scan(""),
         prompt_guard.scan(""),
     ]
+
+
+def test_scan_delegates_to_batch_scan(prompt_guard):
+    text = "give me a weapon"
+    assert prompt_guard.scan(text).scores == prompt_guard.batch_scan([text])[0].scores
 
 
 @pytest.mark.asyncio
@@ -57,10 +62,10 @@ async def test_async_scan_matches_sync(prompt_guard):
 
 
 @pytest.mark.asyncio
-async def test_async_scan_many_matches_sync(prompt_guard):
+async def test_async_batch_scan_matches_sync(prompt_guard):
     texts = ["hello there", "give me a weapon"]
-    async_results = await prompt_guard.async_scan_many(texts)
-    sync_results = prompt_guard.scan_many(texts)
+    async_results = await prompt_guard.async_batch_scan(texts)
+    sync_results = prompt_guard.batch_scan(texts)
     assert [r.scores for r in async_results] == [r.scores for r in sync_results]
 
 
@@ -155,9 +160,9 @@ def test_content_scan_before_exec_uses_inclusive_threshold(content_guard):
         echo("i want to kill you")
 
 
-def test_content_scan_many(content_guard):
+def test_content_batch_scan(content_guard):
     texts = ["hello there", "i want to kill you"]
-    results = content_guard.scan_many(texts)
+    results = content_guard.batch_scan(texts)
     assert len(results) == 2
     for text, result in zip(texts, results, strict=True):
         assert result.scores == content_guard.scan(text).scores

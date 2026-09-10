@@ -2,6 +2,7 @@ import asyncio
 import functools
 import warnings
 from collections.abc import Callable
+from typing import Any
 
 from .._types import DEFAULT_CONFIDENCE, DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, Span
 from ..base_classes import (
@@ -71,18 +72,7 @@ class Guard(GuardModel):
         if unsafe_score >= confidence:
             raise UnsafePromptError(unsafe_score)
 
-    def _chunk_texts(self, text: str, max_seq_length: int, overlap: int) -> tuple[list[tuple[int, int]], list[str]]:
-        spans = self._chunk_text(text, max_seq_length, overlap)
-        return spans, [text[start:end] for start, end in spans]
-
-    def scan(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP) -> Result:
-        spans, chunk_texts = self._chunk_texts(text, max_seq_length, overlap)
-        if not chunk_texts:
-            return self._from_prediction([])
-        results = self._predict(chunk_texts)
-        return self._from_prediction(results)
-
-    def scan_many(
+    def batch_scan(
         self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
     ) -> list[Result]:
         all_spans = [self._chunk_text(t, max_seq_length, overlap) for t in texts]
@@ -95,17 +85,7 @@ class Guard(GuardModel):
             per_text[idx].append(chunk_result)
         return [self._from_prediction(chunk_results) for chunk_results in per_text]
 
-    async def async_scan(
-        self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
-    ) -> Result:
-        spans, chunk_texts = self._chunk_texts(text, max_seq_length, overlap)
-        if not chunk_texts:
-            return self._from_prediction([])
-        loop = asyncio.get_running_loop()
-        results = await loop.run_in_executor(None, functools.partial(self._predict, chunk_texts))
-        return self._from_prediction(results)
-
-    async def async_scan_many(
+    async def async_batch_scan(
         self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
     ) -> list[Result]:
         all_spans = [self._chunk_text(t, max_seq_length, overlap) for t in texts]
@@ -121,62 +101,74 @@ class Guard(GuardModel):
             per_text[idx].append(chunk_result)
         return [self._from_prediction(chunk_results) for chunk_results in per_text]
 
-    def redact(
+    def batch_redact(
         self,
-        text: str,
+        texts: list[str],
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
         replace: str | dict[Category, str] = DEFAULT_REDACTED_LABEL,
         policy: PromptPolicy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
-    ) -> str | tuple[str, list[Span]]:
+        **kwargs: Any,
+    ) -> list[str] | list[tuple[str, list[Span]]]:
         policy = self._resolve_redaction_policy(policy, confidence)
-        spans, chunk_texts = self._chunk_texts(text, max_seq_length, overlap)
-        if not chunk_texts:
-            return ("", []) if return_spans else ""
-        results = self._predict(chunk_texts)
+        all_spans = [self._chunk_text(t, max_seq_length, overlap) for t in texts]
+        flat = [(idx, texts[idx][start:end]) for idx, spans in enumerate(all_spans) for start, end in spans]
+        results = self._predict([chunk_text for _, chunk_text in flat]) if flat else []
 
-        flags = []
-        for chunk_result in results:
-            if self._chunk_matches_policy(chunk_result, policy):
-                flags.append((True, Category.UNSAFE))
-            else:
-                flags.append((False, None))
+        per_text: list[list[dict]] = [[] for _ in texts]
+        for (idx, _), chunk_result in zip(flat, results, strict=True):
+            per_text[idx].append(chunk_result)
 
-        redacted, redaction_spans = _redact_text_with_spans(text, spans, flags, replace)
-        if return_spans:
-            return redacted, redaction_spans
-        return redacted
+        outputs = []
+        for text, spans, chunk_results in zip(texts, all_spans, per_text, strict=True):
+            flags = []
+            for chunk_result in chunk_results:
+                if self._chunk_matches_policy(chunk_result, policy):
+                    flags.append((True, Category.UNSAFE))
+                else:
+                    flags.append((False, None))
+            redacted, redaction_spans = _redact_text_with_spans(text, spans, flags, replace)
+            outputs.append((redacted, redaction_spans) if return_spans else redacted)
+        return outputs
 
-    async def async_redact(
+    async def async_batch_redact(
         self,
-        text: str,
+        texts: list[str],
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
         replace: str | dict[Category, str] = DEFAULT_REDACTED_LABEL,
         policy: PromptPolicy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
-    ) -> str | tuple[str, list[Span]]:
+        **kwargs: Any,
+    ) -> list[str] | list[tuple[str, list[Span]]]:
         policy = self._resolve_redaction_policy(policy, confidence)
-        spans, chunk_texts = self._chunk_texts(text, max_seq_length, overlap)
-        if not chunk_texts:
-            return ("", []) if return_spans else ""
+        all_spans = [self._chunk_text(t, max_seq_length, overlap) for t in texts]
+        flat = [(idx, texts[idx][start:end]) for idx, spans in enumerate(all_spans) for start, end in spans]
         loop = asyncio.get_running_loop()
-        results = await loop.run_in_executor(None, functools.partial(self._predict, chunk_texts))
+        results = (
+            await loop.run_in_executor(None, functools.partial(self._predict, [chunk_text for _, chunk_text in flat]))
+            if flat
+            else []
+        )
 
-        flags = []
-        for chunk_result in results:
-            if self._chunk_matches_policy(chunk_result, policy):
-                flags.append((True, Category.UNSAFE))
-            else:
-                flags.append((False, None))
+        per_text: list[list[dict]] = [[] for _ in texts]
+        for (idx, _), chunk_result in zip(flat, results, strict=True):
+            per_text[idx].append(chunk_result)
 
-        redacted, redaction_spans = _redact_text_with_spans(text, spans, flags, replace)
-        if return_spans:
-            return redacted, redaction_spans
-        return redacted
+        outputs = []
+        for text, spans, chunk_results in zip(texts, all_spans, per_text, strict=True):
+            flags = []
+            for chunk_result in chunk_results:
+                if self._chunk_matches_policy(chunk_result, policy):
+                    flags.append((True, Category.UNSAFE))
+                else:
+                    flags.append((False, None))
+            redacted, redaction_spans = _redact_text_with_spans(text, spans, flags, replace)
+            outputs.append((redacted, redaction_spans) if return_spans else redacted)
+        return outputs
 
     def redact_before_exec(
         self,

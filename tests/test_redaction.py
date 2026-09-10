@@ -1,3 +1,5 @@
+import pytest
+
 from mezzoguard._types import Span
 from mezzoguard.prompt_guard import Category as PromptCategory
 
@@ -89,3 +91,43 @@ def test_content_redact_default_replacement_for_unknown_category(content_guard):
         replace={ContentCategory.SEXUAL: "[SEXUAL]"},
     )
     assert out == "a[REDACTED] b"
+
+
+def test_batch_redact_matches_single(prompt_guard):
+    texts = ["hello world foo bar", "a b c kill e f", "all good here"]
+    batch = prompt_guard.batch_redact(texts, max_seq_length=4, overlap=1)
+    assert batch == [prompt_guard.redact(t, max_seq_length=4, overlap=1) for t in texts]
+
+
+def test_batch_redact_empty(prompt_guard):
+    assert prompt_guard.batch_redact([]) == []
+    assert prompt_guard.batch_redact([""]) == [""]
+
+
+def test_batch_redact_return_spans(prompt_guard):
+    texts = ["a b c kill e f", "hello world"]
+    outputs = prompt_guard.batch_redact(texts, max_seq_length=4, overlap=0, return_spans=True)
+    assert len(outputs) == 2
+
+    redacted, spans = outputs[0]
+    assert redacted == "[REDACTED] e f"
+    assert len(spans) == 1
+    assert isinstance(spans[0], Span)
+    assert texts[0][spans[0].start : spans[0].end] == "a b c kill"
+    assert spans[0].category == PromptCategory.UNSAFE
+
+    assert outputs[1] == ("hello world", [])
+
+
+def test_content_batch_redact_matches_single(content_guard):
+    texts = ["a kill b stupid c", "the weather is nice"]
+    batch = content_guard.batch_redact(texts, max_seq_length=1, overlap=0)
+    assert batch == [content_guard.redact(t, max_seq_length=1, overlap=0) for t in texts]
+
+
+@pytest.mark.asyncio
+async def test_async_batch_redact_matches_sync(prompt_guard):
+    texts = ["a b c kill e f", "hello world"]
+    async_results = await prompt_guard.async_batch_redact(texts, max_seq_length=4, overlap=1)
+    sync_results = prompt_guard.batch_redact(texts, max_seq_length=4, overlap=1)
+    assert async_results == sync_results

@@ -137,12 +137,17 @@ Exceptions: `mezzoguard.UnsafePromptError` (prompt guards) and `mezzoguard.Unsaf
 
 ## Async and batching
 
-The `async_scan` / `async_redact` variants never block the event loop. Scanning many texts at once
-is batched into a single pipeline call:
+The `async_*` variants never block the event loop. Batch methods are the primitives: they scan or
+redact many texts in a single pipeline call, and the single-text methods delegate to them with a
+one-element batch.
 
 ```python
-results = guard.scan_many(["text one", "text two"])
-results = await guard.async_scan_many(texts)
+results = guard.batch_scan(["text one", "text two"])
+redacted = guard.batch_redact(["text one", "text two"])
+redacted, spans_list = guard.batch_redact(texts, return_spans=True)
+
+results = await guard.async_batch_scan(texts)
+redacted = await guard.async_batch_redact(texts)
 ```
 
 ## Performance options
