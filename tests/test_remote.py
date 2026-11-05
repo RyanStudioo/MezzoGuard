@@ -4,10 +4,8 @@ import time
 import pytest
 import uvicorn
 
-from mezzoguard.content_guard import Category as ContentCategory
 from mezzoguard.content_guard import ContentPolicy
 from mezzoguard.errors import UnsafePromptError
-from mezzoguard.prompt_guard import Category as PromptCategory
 from mezzoguard.remote import APIContentGuard, APIPromptGuard
 from mezzoguard.server import create_app
 
@@ -48,41 +46,41 @@ def content_url(content_guard):
 def test_api_info(prompt_url):
     with APIPromptGuard(prompt_url) as guard:
         assert guard.info["model_type"] == "prompt_guard"
-        assert guard.info["categories"] == ["unsafe", "safe"]
+        assert guard.info["categories"] == ["safe", "unsafe"]
 
 
 def test_remote_scan_matches_local(prompt_url):
     with APIPromptGuard(prompt_url) as client:
         result = client.scan("kill the process")
     assert result.is_unsafe()
-    assert result.scores[PromptCategory.UNSAFE] == 0.99
+    assert result.scores["unsafe"] == 0.99
     assert result.chunks == [{"label": "unsafe", "score": 0.99}]
 
 
 def test_remote_batch_scan(content_url):
     with APIContentGuard(content_url) as client:
         results = client.batch_scan(["I will kill you", "hello"])
-    assert results[0].scores[ContentCategory.VIOLENCE] == 0.98
-    assert results[1].scores[ContentCategory.VIOLENCE] == 0.05
+    assert results[0].scores["violence"] == 0.98
+    assert results[1].scores["violence"] == 0.05
 
 
 def test_remote_redact_with_spans(content_url):
     with APIContentGuard(content_url) as client:
         redacted, spans = client.redact("I will kill you with a weapon", return_spans=True)
     assert "[REDACTED]" in redacted
-    assert spans[0].category == ContentCategory.VIOLENCE
+    assert spans[0].category == "violence"
     assert spans[0].start == 0
 
 
 def test_remote_redact_custom_replacements(content_url):
     with APIContentGuard(content_url) as client:
-        redacted = client.redact("I will kill you", replace={ContentCategory.VIOLENCE: "[VIOLENCE]"})
+        redacted = client.redact("I will kill you", replace={"violence": "[VIOLENCE]"})
     assert redacted == "[VIOLENCE]"
 
 
 def test_remote_redact_policy(content_url):
     policy = ContentPolicy()
-    for category in ContentCategory:
+    for category in ["hate-speech", "self-harm", "sexual", "toxic", "violence"]:
         policy.add_threshold(category, 0.999)
     with APIContentGuard(content_url) as client:
         untouched = client.redact("I will kill you", policy=policy)

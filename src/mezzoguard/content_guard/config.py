@@ -1,53 +1,32 @@
 from ..base_classes import BaseConfig
-from .categories import Category
 
 
 class ContentGuardConfig(BaseConfig):
     """Configurations for Content Guard"""
 
-    def __init__(self, mappings: dict[str, Category]):
+    def __init__(self, categories: list[str]):
         super().__init__("content_guard")
-        self.mappings = mappings
-        self._normalized_mappings = {self._normalize_label(label): category for label, category in mappings.items()}
+        self.categories = categories
+        self._normalized_categories = {self._normalize_label(category): category for category in categories}
 
     def _normalize_label(self, label: str) -> str:
         return label.strip().lower().replace("_", "-").replace(" ", "-")
 
-    def get_category_for_label(self, label: str) -> Category:
-        if label in self.mappings:
-            return self.mappings[label]
+    def get_category_for_label(self, label: str) -> str:
+        if label in self.categories:
+            return label
         normalized_label = self._normalize_label(label)
-        if normalized_label in self._normalized_mappings:
-            return self._normalized_mappings[normalized_label]
-        raise ValueError(f"Label '{label}' not found in mappings")
-
-    def get_labels_for_category(self, category: Category) -> list[str]:
-        valid = []
-        for label, cat in self.mappings.items():
-            if cat == category:
-                valid.append(label)
-        return valid
+        if normalized_label in self._normalized_categories:
+            return self._normalized_categories[normalized_label]
+        raise ValueError(f"Label '{label}' not found in categories")
 
 
 CONFIGS = {
     "mezzo-content-guard-preview": ContentGuardConfig(
-        mappings={
-            "Divisive": Category.DIVISIVE,
-            "Hate Speech": Category.HATE_SPEECH,
-            "Self-Harm": Category.SELF_HARM,
-            "Sexual": Category.SEXUAL,
-            "Toxic": Category.TOXIC,
-            "Violence": Category.VIOLENCE,
-        }
+        categories=["divisive", "hate-speech", "self-harm", "sexual", "toxic", "violence"]
     ),
     "mezzo-content-guard-v1": ContentGuardConfig(
-        mappings={
-            "hate-speech": Category.HATE_SPEECH,
-            "self-harm": Category.SELF_HARM,
-            "sexual": Category.SEXUAL,
-            "toxic": Category.TOXIC,
-            "violence": Category.VIOLENCE,
-        }
+        categories=["hate-speech", "self-harm", "sexual", "toxic", "violence"]
     ),
 }
 

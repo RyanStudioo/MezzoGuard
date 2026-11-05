@@ -32,7 +32,7 @@ def test_detect_model_type_presets():
 
 
 def test_detect_model_type_from_config(monkeypatch):
-    config = ModelConfig(model_type="content_guard", mappings={})
+    config = ModelConfig(model_type="content_guard", categories=[])
     monkeypatch.setattr(ModelConfig, "from_model_name", classmethod(lambda cls, name: config))
     assert cli.detect_model_type("some/unknown") == "content_guard"
 

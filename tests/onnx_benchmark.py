@@ -1,7 +1,6 @@
 import statistics
 import time
 
-from mezzoguard import CONTENTGUARD
 from mezzoguard.content_guard import Guard
 
 MESSAGES = [
@@ -56,7 +55,7 @@ def print_result(result: dict) -> None:
 
 
 if __name__ == "__main__":
-    model_name = CONTENTGUARD.MEZZO_CONTENT_GUARD_V1_5_NANO
+    model_name = "RyanStudio/Mezzo-Content-Guard-v1.5-Nano"
 
     print(f"Model: {model_name}")
     print(f"Messages: {len(MESSAGES)}")

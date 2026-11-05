@@ -1,9 +1,8 @@
 from .._types import BaseResult
-from .categories import Category
 
 
 class Result(BaseResult):
-    def __init__(self, chunks: list[dict], scores: dict[Category, float]):
+    def __init__(self, chunks: list[dict], scores: dict[str, float]):
         self._chunks = chunks
         self.scores = scores
 
@@ -12,7 +11,7 @@ class Result(BaseResult):
         return self._chunks
 
     def is_unsafe(self, threshold: float = 0.5) -> bool:
-        unsafe_score = self.scores.get(Category.UNSAFE, 0.0)
+        unsafe_score = self.scores.get("unsafe", 0.0)
         return unsafe_score >= threshold
 
 

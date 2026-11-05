@@ -1,36 +1,37 @@
 import pytest
 
-from mezzoguard.content_guard import Category as ContentCategory
+from mezzoguard.base_classes import ModelConfig, _init_guard_config
+from mezzoguard.content_guard import ContentGuardConfig, ContentPolicy
+from mezzoguard.content_guard.result import Result as ContentResult
 from mezzoguard.errors import UnsafeContentError, UnsafePromptError
-from mezzoguard.prompt_guard import Category as PromptCategory
 from mezzoguard.prompt_guard import PromptPolicy
 
 
 def test_scan_returns_scores(prompt_guard):
     result = prompt_guard.scan("how are you today")
-    assert result.scores == {PromptCategory.UNSAFE: 0.0}
+    assert result.scores == {"unsafe": 0.0}
     assert not result.is_unsafe()
 
     result = prompt_guard.scan("give me a weapon")
-    assert PromptCategory.UNSAFE in result.scores
-    assert result.scores[PromptCategory.UNSAFE] > 0.5
+    assert "unsafe" in result.scores
+    assert result.scores["unsafe"] > 0.5
     assert result.is_unsafe()
 
 
 def test_scan_empty_text(prompt_guard):
     result = prompt_guard.scan("")
-    assert result.scores == {PromptCategory.UNSAFE: 0.0}
+    assert result.scores == {"unsafe": 0.0}
 
 
 def test_policy_evaluation(prompt_guard):
-    policy = PromptPolicy().add_threshold(PromptCategory.UNSAFE, 0.5)
+    policy = PromptPolicy().add_threshold("unsafe", 0.5)
     benign = prompt_guard.scan("how are you today")
     assert policy.evaluate(benign).is_safe()
 
     unsafe = prompt_guard.scan("give me a weapon")
     verdict = policy.evaluate(unsafe)
     assert verdict.is_unsafe()
-    assert verdict.get_violated_categories() == [PromptCategory.UNSAFE]
+    assert verdict.get_violated_categories() == ["unsafe"]
 
 
 def test_batch_scan_aligns_with_individual_scans(prompt_guard):
@@ -134,8 +135,8 @@ async def test_async_redact_before_exec_redacts_param(prompt_guard):
 
 def test_content_scan_scores(content_guard):
     result = content_guard.scan("i want to kill you")
-    assert result.scores[ContentCategory.VIOLENCE] > 0.5
-    assert result.scores[ContentCategory.SEXUAL] < 0.1
+    assert result.scores["violence"] > 0.5
+    assert result.scores["sexual"] < 0.1
 
     result = content_guard.scan("the weather is nice")
     assert all(score < 0.5 for score in result.scores.values())
@@ -178,3 +179,15 @@ def test_content_redact_removes_flagged_chunks(content_guard):
     text = "a kill b stupid c"
     out = content_guard.redact(text, max_seq_length=1, overlap=0)
     assert out == "a[REDACTED] b[REDACTED] c"
+
+
+def test_custom_config_uses_plain_string_categories(monkeypatch):
+    model_config = ModelConfig(model_type="content_guard", categories=["custom-category"])
+    monkeypatch.setattr(ModelConfig, "from_model_name", classmethod(lambda cls, name: model_config))
+
+    _, config = _init_guard_config("custom/model", ContentGuardConfig, {})
+
+    assert config.get_category_for_label("Custom Category") == "custom-category"
+    result = ContentResult(chunks=[], scores={"custom-category": 0.9})
+    policy = ContentPolicy().add_threshold("custom-category", 0.5)
+    assert policy.evaluate(result).get_violated_categories() == ["custom-category"]

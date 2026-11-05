@@ -7,7 +7,6 @@ from ._types import (
     DEFAULT_MAX_SEQ_LENGTH,
     DEFAULT_OVERLAP,
     DEFAULT_REDACTED_LABEL,
-    BaseCategory,
     BaseResult,
     Span,
 )
@@ -16,10 +15,8 @@ from .base_classes import (
     _make_redact_before_exec,
     _make_scan_before_exec,
 )
-from .content_guard import Category as ContentCategory
 from .content_guard import Result as ContentResult
 from .errors import MezzoGuardServerError, UnsafeContentError, UnsafePromptError
-from .prompt_guard import Category as PromptCategory
 from .prompt_guard import Result as PromptResult
 
 
@@ -31,13 +28,6 @@ def _require_httpx():
             'API guards require httpx, which is not installed. Install it with `pip install "mezzo-guard[client]"`.'
         ) from e
     return httpx
-
-
-def _category_from_name(enum_cls: type[BaseCategory], name: str) -> Any:
-    try:
-        return enum_cls(name)
-    except ValueError:
-        return name
 
 
 def _handle_response(response: Any) -> Any:
@@ -59,7 +49,6 @@ class APIGuard:
     """
 
     model_type: str
-    _category_enum: type[BaseCategory]
     _result_cls: type[BaseResult]
 
     def __init__(self, base_url: str, timeout: float = 30.0):
@@ -125,7 +114,7 @@ class APIGuard:
         texts: list[str],
         max_seq_length: int,
         overlap: int,
-        replace: str | dict[BaseCategory, str],
+        replace: str | dict[str, str],
         policy: BasePolicy | None,
         confidence: float,
         return_spans: bool,
@@ -139,7 +128,7 @@ class APIGuard:
         }
         if isinstance(replace, dict):
             payload["replace"] = DEFAULT_REDACTED_LABEL
-            payload["replacements"] = {getattr(cat, "value", str(cat)): value for cat, value in replace.items()}
+            payload["replacements"] = dict(replace)
         else:
             payload["replace"] = replace
         if policy is not None:
@@ -147,19 +136,18 @@ class APIGuard:
         return payload
 
     def _build_result(self, payload: dict) -> BaseResult:
-        scores = {_category_from_name(self._category_enum, name): score for name, score in payload["scores"].items()}
+        scores = dict(payload["scores"])
         chunks = payload.get("chunks")
         return self._result_cls(chunks=chunks if chunks is not None else [], scores=scores)
 
     def _build_spans(self, payload: list[dict]) -> list[Span]:
         spans = []
         for item in payload:
-            category = item.get("category")
             spans.append(
                 Span(
                     start=item["start"],
                     end=item["end"],
-                    category=_category_from_name(self._category_enum, category) if category is not None else None,
+                    category=item.get("category"),
                     replacement=item.get("replacement", ""),
                 )
             )
@@ -192,7 +180,7 @@ class APIGuard:
         text: str,
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
-        replace: str | dict[BaseCategory, str] = DEFAULT_REDACTED_LABEL,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
         policy: BasePolicy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
@@ -212,7 +200,7 @@ class APIGuard:
         texts: list[str],
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
-        replace: str | dict[BaseCategory, str] = DEFAULT_REDACTED_LABEL,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
         policy: BasePolicy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
@@ -230,7 +218,7 @@ class APIGuard:
         text: str,
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
-        replace: str | dict[BaseCategory, str] = DEFAULT_REDACTED_LABEL,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
         policy: BasePolicy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
@@ -252,7 +240,7 @@ class APIGuard:
         texts: list[str],
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
-        replace: str | dict[BaseCategory, str] = DEFAULT_REDACTED_LABEL,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
         policy: BasePolicy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
@@ -308,11 +296,10 @@ class APIPromptGuard(APIGuard):
     """Prompt guard that calls a Mezzo Guard HTTP server."""
 
     model_type = "prompt_guard"
-    _category_enum = PromptCategory
     _result_cls = PromptResult
 
     def _on_unsafe(self, result: BaseResult, confidence: float) -> None:
-        unsafe_score = result.scores.get(PromptCategory.UNSAFE, 0.0)
+        unsafe_score = result.scores.get("unsafe", 0.0)
         if unsafe_score >= confidence:
             raise UnsafePromptError(unsafe_score)
 
@@ -321,11 +308,10 @@ class APIContentGuard(APIGuard):
     """Content guard that calls a Mezzo Guard HTTP server."""
 
     model_type = "content_guard"
-    _category_enum = ContentCategory
     _result_cls = ContentResult
 
     def _on_unsafe(self, result: BaseResult, confidence: float) -> None:
-        violated = [{cat.value: score} for cat, score in result.scores.items() if score >= confidence]
+        violated = [{cat: score} for cat, score in result.scores.items() if score >= confidence]
         if violated:
             raise UnsafeContentError(violated)
 

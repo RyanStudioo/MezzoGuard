@@ -13,7 +13,6 @@ from ..base_classes import (
 )
 from ..errors import UnsafeContentError
 from ..model import GuardModel
-from .categories import Category
 from .config import MODELS_CONFIG, ContentGuardConfig
 from .policy import ContentPolicy
 from .result import Result
@@ -26,7 +25,7 @@ class Guard(GuardModel):
         super().__init__(name, task="text-classification", **kwargs)
 
         self.model_config: ModelConfig | None = None
-        self.model_config, self.config = _init_guard_config(name, Category, ContentGuardConfig, MODELS_CONFIG)
+        self.model_config, self.config = _init_guard_config(name, ContentGuardConfig, MODELS_CONFIG)
 
         if self.model_config is not None and self.model_config.deprecated:
             warnings.warn(
@@ -43,14 +42,14 @@ class Guard(GuardModel):
                     stacklevel=2,
                 )
 
-    def _get_category_for_label(self, label: str) -> Category | None:
+    def _get_category_for_label(self, label: str) -> str | None:
         try:
             return self.config.get_category_for_label(label)
         except ValueError:
             return None
 
-    def _scores_from_chunk(self, chunk_result: list[dict]) -> dict[Category, float]:
-        max_scores: dict[Category, float] = {}
+    def _scores_from_chunk(self, chunk_result: list[dict]) -> dict[str, float]:
+        max_scores: dict[str, float] = {}
         for pred in chunk_result:
             label = pred.get("label", "")
             category = self._get_category_for_label(label)
@@ -62,7 +61,7 @@ class Guard(GuardModel):
         return max_scores
 
     def _from_prediction(self, results: list[list[dict]]) -> Result:
-        max_scores: dict[Category, float] = {}
+        max_scores: dict[str, float] = {}
         for chunk_result in results:
             chunk_scores = self._scores_from_chunk(chunk_result)
             for category, score in chunk_scores.items():
@@ -74,11 +73,12 @@ class Guard(GuardModel):
         if policy is not None:
             return policy
         default_policy = ContentPolicy()
-        for category in Category:
-            default_policy.add_threshold(category, confidence)
+        if self.config is not None:
+            for category in self.config.categories:
+                default_policy.add_threshold(category, confidence)
         return default_policy
 
-    def _chunk_violation(self, chunk_result: list[dict], policy: ContentPolicy) -> Category | None:
+    def _chunk_violation(self, chunk_result: list[dict], policy: ContentPolicy) -> str | None:
         scores = self._scores_from_chunk(chunk_result)
         verdict = policy.evaluate(Result(chunks=[chunk_result], scores=scores))
         if not verdict:
@@ -92,7 +92,7 @@ class Guard(GuardModel):
         violated = []
         for cat, score in result.scores.items():
             if score >= confidence:
-                violated.append({cat.value: score})
+                violated.append({cat: score})
         if violated:
             raise UnsafeContentError(violated)
 
@@ -131,7 +131,7 @@ class Guard(GuardModel):
         texts: list[str],
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
-        replace: str | dict[Category, str] = DEFAULT_REDACTED_LABEL,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
         policy: ContentPolicy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
@@ -161,7 +161,7 @@ class Guard(GuardModel):
         texts: list[str],
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
-        replace: str | dict[Category, str] = DEFAULT_REDACTED_LABEL,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
         policy: ContentPolicy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,

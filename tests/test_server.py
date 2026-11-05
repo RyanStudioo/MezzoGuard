@@ -25,7 +25,7 @@ def test_info_lists_categories_and_defaults(content_guard):
     body = response.json()
     assert body["model_type"] == "content_guard"
     assert body["backend"] == "torch"
-    assert body["categories"] == ["divisive", "hate-speech", "self-harm", "sexual", "toxic", "violence"]
+    assert body["categories"] == ["hate-speech", "self-harm", "sexual", "toxic", "violence"]
     assert body["default_max_seq_length"] == 64
     assert body["default_overlap"] == 16
     assert body["default_replace"] == "[REDACTED]"

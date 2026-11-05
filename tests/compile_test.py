@@ -1,6 +1,5 @@
 import time
 
-from mezzoguard import CONTENTGUARD
 from mezzoguard.content_guard import Guard
 
 
@@ -15,8 +14,8 @@ def benchmark(model_name: str, **kwargs) -> float:
 
 
 if __name__ == "__main__":
-    uncompiled = benchmark(CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE)
+    uncompiled = benchmark("RyanStudio/Mezzo-Content-Guard-Large")
     print(f"Uncompiled Latency: {uncompiled} ms")
 
-    compiled = benchmark(CONTENTGUARD.MEZZO_CONTENT_GUARD_LARGE, torch_compile=True)
+    compiled = benchmark("RyanStudio/Mezzo-Content-Guard-Large", torch_compile=True)
     print(f"Compiled Latency: {compiled} ms")

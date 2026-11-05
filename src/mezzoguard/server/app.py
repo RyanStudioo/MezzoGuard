@@ -6,12 +6,10 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 
 from .. import __version__
-from .._types import DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, BaseCategory
+from .._types import DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL
 from ..base_classes import BasePolicy
-from ..content_guard import Category as ContentCategory
 from ..content_guard import ContentPolicy
 from ..model import GuardModel
-from ..prompt_guard import Category as PromptCategory
 from ..prompt_guard import PromptPolicy
 from .schemas import (
     HealthResponse,
@@ -24,38 +22,28 @@ from .schemas import (
     ScanResponse,
     ScanResult,
 )
-from .serialize import category_value, scores_to_dict, span_to_dict
+from .serialize import scores_to_dict, span_to_dict
 
 ModelType = Literal["prompt_guard", "content_guard"]
 
-_CATEGORY_ENUMS: dict[str, type[BaseCategory]] = {
-    "prompt_guard": PromptCategory,
-    "content_guard": ContentCategory,
-}
 _POLICY_CLASSES: dict[str, type[BasePolicy]] = {
     "prompt_guard": PromptPolicy,
     "content_guard": ContentPolicy,
 }
 
 
-def _category_for(model_type: str, name: str) -> BaseCategory | None:
-    try:
-        return _CATEGORY_ENUMS[model_type](name)
-    except ValueError:
-        return None
+def _categories_for(guard: GuardModel) -> list[str]:
+    config = getattr(guard, "config", None)
+    if config is None:
+        return []
+    return list(config.categories)
 
 
-def _build_policy(model_type: str, mapping: dict[str, float] | None, confidence: float) -> BasePolicy:
-    """Build a guard policy from wire thresholds, or a confidence default."""
+def _build_policy(model_type: str, mapping: dict[str, float]) -> BasePolicy:
+    """Build a guard policy from wire thresholds."""
     policy = _POLICY_CLASSES[model_type]()
-    if mapping is None:
-        for category in _CATEGORY_ENUMS[model_type]:
-            policy.add_threshold(category, confidence)
-        return policy
-    for name, threshold in mapping.items():
-        category = _category_for(model_type, name)
-        if category is not None:
-            policy.add_threshold(category, threshold)
+    for category, threshold in mapping.items():
+        policy.add_threshold(category, threshold)
     return policy
 
 
@@ -84,7 +72,7 @@ def create_app(
 
     ``guard`` is expected to be already loaded; the app ejects it on shutdown.
     """
-    if model_type not in _CATEGORY_ENUMS:
+    if model_type not in _POLICY_CLASSES:
         raise ValueError(f"Invalid model_type '{model_type}'. Must be 'prompt_guard' or 'content_guard'.")
 
     @asynccontextmanager
@@ -121,7 +109,7 @@ def create_app(
         return InfoResponse(
             model=guard.name,
             model_type=model_type,
-            categories=[category.value for category in _CATEGORY_ENUMS[model_type]],
+            categories=_categories_for(guard),
             default_max_seq_length=DEFAULT_MAX_SEQ_LENGTH,
             default_overlap=DEFAULT_OVERLAP,
             default_replace=DEFAULT_REDACTED_LABEL,
@@ -140,10 +128,10 @@ def create_app(
         payload = []
         for result in results:
             if request.policy is not None:
-                policy = _build_policy(model_type, request.policy, request.confidence)
-                violated = [category_value(c) for c in policy.evaluate(result).get_violated_categories()]
+                policy = _build_policy(model_type, request.policy)
+                violated = policy.evaluate(result).get_violated_categories()
             else:
-                violated = [category_value(c) for c, score in result.scores.items() if score >= request.confidence]
+                violated = [category for category, score in result.scores.items() if score >= request.confidence]
             payload.append(
                 ScanResult(
                     scores=scores_to_dict(result.scores),
@@ -161,15 +149,11 @@ def create_app(
         overlap = request.overlap if request.overlap is not None else DEFAULT_OVERLAP
 
         if request.replacements:
-            replace: str | dict[BaseCategory, str] = {}
-            for name, value in request.replacements.items():
-                category = _category_for(model_type, name)
-                if category is not None:
-                    replace[category] = value
+            replace: str | dict[str, str] = dict(request.replacements)
         else:
             replace = request.replace
 
-        policy = _build_policy(model_type, request.policy, request.confidence) if request.policy is not None else None
+        policy = _build_policy(model_type, request.policy) if request.policy is not None else None
         results = await guard.async_batch_redact(
             request.texts,
             max_seq_length,

@@ -8,7 +8,6 @@ from ._types import (
     DEFAULT_MAX_SEQ_LENGTH,
     DEFAULT_OVERLAP,
     DEFAULT_REDACTED_LABEL,
-    BaseCategory,
     BaseResult,
     Span,
 )
@@ -22,7 +21,7 @@ class ModelConfig:
     def __init__(
         self,
         model_type: Literal["prompt_guard", "content_guard"],
-        mappings: dict[str, str],
+        categories: list[str],
         safe_category: str | None = None,
         default_max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         default_overlap: int = DEFAULT_OVERLAP,
@@ -32,7 +31,7 @@ class ModelConfig:
         replacement: str = "",
     ):
         self.model_type = model_type
-        self.mappings = mappings
+        self.categories = categories
         self.safe_category = safe_category
         self.default_max_seq_length = default_max_seq_length
         self.default_overlap = default_overlap
@@ -45,7 +44,7 @@ class ModelConfig:
     def from_dict(cls, data: dict) -> "ModelConfig":
         return cls(
             model_type=data["model_type"],
-            mappings=data["mappings"],
+            categories=data["categories"],
             safe_category=data.get("safe_category"),
             default_max_seq_length=data.get("default_max_seq_length", DEFAULT_MAX_SEQ_LENGTH),
             default_overlap=data.get("default_overlap", DEFAULT_OVERLAP),
@@ -155,7 +154,7 @@ class ModelConfig:
     def to_dict(self) -> dict:
         d = {
             "model_type": self.model_type,
-            "mappings": self.mappings,
+            "categories": self.categories,
             "default_max_seq_length": self.default_max_seq_length,
             "default_overlap": self.default_overlap,
             "default_replace": self.default_replace,
@@ -177,9 +176,7 @@ class BaseConfig:
 
 
 class PolicyResult(BaseResult):
-    def __init__(
-        self, scores: dict[BaseCategory, float], violated: dict[BaseCategory, bool], categories: list[BaseCategory]
-    ):
+    def __init__(self, scores: dict[str, float], violated: dict[str, bool], categories: list[str]):
         self.scores = scores
         self.violated = violated
         self.categories = categories
@@ -188,8 +185,8 @@ class PolicyResult(BaseResult):
         return self.is_unsafe()
 
     def __repr__(self) -> str:
-        violated = [k.name for k, v in self.violated.items() if v]
-        safe = [k.name for k, v in self.violated.items() if not v]
+        violated = [category for category, is_violated in self.violated.items() if is_violated]
+        safe = [category for category, is_violated in self.violated.items() if not is_violated]
         return f"PolicyResult(safe={safe}, violated={violated})"
 
     def is_safe(self) -> bool:
@@ -198,7 +195,7 @@ class PolicyResult(BaseResult):
     def is_unsafe(self) -> bool:
         return any(self.violated.values())
 
-    def get_violated_categories(self) -> list[BaseCategory]:
+    def get_violated_categories(self) -> list[str]:
         return [category for category, violated in self.violated.items() if violated]
 
 
@@ -206,26 +203,26 @@ class BasePolicy:
     """Base Policy class"""
 
     def __init__(self):
-        self._mapping: dict[BaseCategory, float] = {}
+        self._mapping: dict[str, float] = {}
 
-    def add_threshold(self, category: BaseCategory, threshold: float) -> Self:
+    def add_threshold(self, category: str, threshold: float) -> Self:
         """Add a threshold to a category"""
         self._mapping[category] = threshold
         return self
 
-    def get_threshold(self, category: BaseCategory) -> float:
+    def get_threshold(self, category: str) -> float:
         """Get the threshold of a category"""
         if category not in self._mapping:
             return 0.0
         return self._mapping[category]
 
     def to_dict(self) -> dict[str, float]:
-        """Serialize thresholds to a plain ``{category_value: threshold}`` mapping."""
-        return {getattr(category, "value", str(category)): threshold for category, threshold in self._mapping.items()}
+        """Serialize thresholds to a plain ``{category: threshold}`` mapping."""
+        return dict(self._mapping)
 
     def evaluate(self, result: BaseResult, **kwargs) -> PolicyResult:
         """Evaluate a result from a guard scan"""
-        violated: dict[BaseCategory, bool] = {}
+        violated: dict[str, bool] = {}
         for key, value in result.scores.items():
             threshold = self.get_threshold(key)
             violated[key] = value >= threshold
@@ -236,8 +233,8 @@ class BasePolicy:
 def _redact_text_with_spans(
     text: str,
     spans: list[tuple[int, int]],
-    flags: list[tuple[bool, BaseCategory | None]],
-    replace: str | dict[BaseCategory, str],
+    flags: list[tuple[bool, str | None]],
+    replace: str | dict[str, str],
 ) -> tuple[str, list[Span]]:
     """Shared redaction core used by prompt and content guards.
 
@@ -249,11 +246,11 @@ def _redact_text_with_spans(
     """
     if isinstance(replace, str):
 
-        def replacement_for(category: BaseCategory | None) -> str:
+        def replacement_for(category: str | None) -> str:
             return replace
     else:
 
-        def replacement_for(category: BaseCategory | None) -> str:
+        def replacement_for(category: str | None) -> str:
             return replace.get(category, DEFAULT_REDACTED_LABEL)
 
     parts = []
@@ -285,36 +282,19 @@ def _redact_text_with_spans(
     return "".join(parts), redaction_spans
 
 
-def _init_guard_config(name: str, CategoryEnum: type, ConfigClass: type, models_config: dict):
+def _init_guard_config(name: str, ConfigClass: type, models_config: dict):
     """Shared config-loading logic for Guard __init__ methods.
 
     Returns (model_config, config) tuple.
     """
-    from . import _types
-
     model_config = ModelConfig.from_model_name(name)
     config = models_config.get(name)
 
     if model_config and not config:
-        mappings = {}
-        for label, cat_str in model_config.mappings.items():
-            try:
-                cat = CategoryEnum(cat_str)
-            except ValueError:
-                cat = _types.BaseCategory(cat_str)
-            mappings[label] = cat
-
-        safe_cat = None
-        if getattr(model_config, "safe_category", None):
-            try:
-                safe_cat = CategoryEnum(model_config.safe_category)
-            except ValueError:
-                safe_cat = _types.BaseCategory(model_config.safe_category)
-
-        if safe_cat is not None:
-            config = ConfigClass(mappings=mappings, safe_category=safe_cat)
+        if model_config.safe_category is not None:
+            config = ConfigClass(categories=model_config.categories, safe_category=model_config.safe_category)
         else:
-            config = ConfigClass(mappings=mappings)
+            config = ConfigClass(categories=model_config.categories)
 
     if not config:
         warnings.warn(

@@ -14,7 +14,6 @@ from ..base_classes import (
 )
 from ..errors import UnsafePromptError
 from ..model import GuardModel
-from .categories import Category
 from .config import MODELS_CONFIG, PromptGuardConfig
 from .policy import PromptPolicy
 from .result import Result
@@ -27,7 +26,7 @@ class Guard(GuardModel):
         super().__init__(name=name, task="text-classification", **kwargs)
 
         self.model_config: ModelConfig | None = None
-        self.model_config, self.config = _init_guard_config(name, Category, PromptGuardConfig, MODELS_CONFIG)
+        self.model_config, self.config = _init_guard_config(name, PromptGuardConfig, MODELS_CONFIG)
 
         if self.model_config is not None and self.model_config.deprecated:
             warnings.warn(
@@ -54,21 +53,21 @@ class Guard(GuardModel):
             if category != safe_category and score > unsafe_score:
                 unsafe_score = score
         scores = {
-            Category.UNSAFE: unsafe_score,
+            "unsafe": unsafe_score,
         }
         return Result(chunks=chunks, scores=scores)
 
     def _resolve_redaction_policy(self, policy: PromptPolicy | None, confidence: float) -> PromptPolicy:
         if policy is not None:
             return policy
-        return PromptPolicy().add_threshold(Category.UNSAFE, confidence)
+        return PromptPolicy().add_threshold("unsafe", confidence)
 
     def _chunk_matches_policy(self, chunk_result: dict, policy: PromptPolicy) -> bool:
         result = self._from_prediction([chunk_result])
         return bool(policy.evaluate(result))
 
     def _on_unsafe_prompt(self, result: Result, confidence: float) -> None:
-        unsafe_score = result.scores.get(Category.UNSAFE, 0.0)
+        unsafe_score = result.scores.get("unsafe", 0.0)
         if unsafe_score >= confidence:
             raise UnsafePromptError(unsafe_score)
 
@@ -106,7 +105,7 @@ class Guard(GuardModel):
         texts: list[str],
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
-        replace: str | dict[Category, str] = DEFAULT_REDACTED_LABEL,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
         policy: PromptPolicy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
@@ -126,7 +125,7 @@ class Guard(GuardModel):
             flags = []
             for chunk_result in chunk_results:
                 if self._chunk_matches_policy(chunk_result, policy):
-                    flags.append((True, Category.UNSAFE))
+                    flags.append((True, "unsafe"))
                 else:
                     flags.append((False, None))
             redacted, redaction_spans = _redact_text_with_spans(text, spans, flags, replace)
@@ -138,7 +137,7 @@ class Guard(GuardModel):
         texts: list[str],
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
-        replace: str | dict[Category, str] = DEFAULT_REDACTED_LABEL,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
         policy: PromptPolicy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
@@ -163,7 +162,7 @@ class Guard(GuardModel):
             flags = []
             for chunk_result in chunk_results:
                 if self._chunk_matches_policy(chunk_result, policy):
-                    flags.append((True, Category.UNSAFE))
+                    flags.append((True, "unsafe"))
                 else:
                     flags.append((False, None))
             redacted, redaction_spans = _redact_text_with_spans(text, spans, flags, replace)

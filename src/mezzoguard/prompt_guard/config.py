@@ -1,35 +1,24 @@
 from ..base_classes import BaseConfig
-from .categories import Category
 
 
 class PromptGuardConfig(BaseConfig):
     """Configurations for Prompt Guard"""
 
-    def __init__(self, mappings: dict[str, Category], safe_category: Category = Category.SAFE):
+    def __init__(self, categories: list[str], safe_category: str = "safe"):
         super().__init__("prompt_guard")
-        self.mappings = mappings
+        self.categories = categories
         self.safe_category = safe_category
 
-    def get_category_for_label(self, label: str) -> Category:
-        if label not in self.mappings:
-            raise ValueError(f"Label '{label}' not found in mappings")
-        return self.mappings[label]
-
-    def get_labels_for_category(self, category: Category) -> list[str]:
-        valid = []
-        for label, cat in self.mappings.items():
-            if cat == category:
-                valid.append(label)
-        return valid
+    def get_category_for_label(self, label: str) -> str:
+        if label not in self.categories:
+            raise ValueError(f"Label '{label}' not found in categories")
+        return label
 
 
 CONFIGS = {
     "safe-unsafe": PromptGuardConfig(
-        mappings={
-            "safe": Category.SAFE,
-            "unsafe": Category.UNSAFE,
-        },
-        safe_category=Category.SAFE,
+        categories=["safe", "unsafe"],
+        safe_category="safe",
     ),
 }
 

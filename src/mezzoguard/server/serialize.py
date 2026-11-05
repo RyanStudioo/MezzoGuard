@@ -5,14 +5,9 @@ from typing import Any
 from .._types import Span
 
 
-def category_value(category: Any) -> str:
-    """Serialize a category (Enum or string) to a plain string."""
-    return getattr(category, "value", str(category))
-
-
-def scores_to_dict(scores: dict) -> dict[str, float]:
-    """Serialize a ``{BaseCategory: float}`` mapping to ``{str: float}``."""
-    return {category_value(category): float(score) for category, score in scores.items()}
+def scores_to_dict(scores: dict[str, float]) -> dict[str, float]:
+    """Serialize a ``{category: float}`` mapping to ``{str: float}``."""
+    return {str(category): float(score) for category, score in scores.items()}
 
 
 def span_to_dict(span: Span) -> dict[str, Any]:
@@ -20,6 +15,6 @@ def span_to_dict(span: Span) -> dict[str, Any]:
     return {
         "start": span.start,
         "end": span.end,
-        "category": category_value(span.category) if span.category is not None else None,
+        "category": span.category,
         "replacement": span.replacement,
     }

@@ -1,7 +1,6 @@
 import pytest
 
 from mezzoguard._types import Span
-from mezzoguard.prompt_guard import Category as PromptCategory
 
 
 def test_redact_safe_text_unchanged_with_overlap(prompt_guard):
@@ -41,7 +40,7 @@ def test_redact_return_spans(prompt_guard):
     span = spans[0]
     assert isinstance(span, Span)
     assert text[span.start : span.end] == "a b c kill"
-    assert span.category == PromptCategory.UNSAFE
+    assert span.category == "unsafe"
     assert span.replacement == "[REDACTED]"
 
 
@@ -59,14 +58,12 @@ def test_redact_custom_replacement(prompt_guard):
 
 
 def test_content_redact_per_category_replacement(content_guard):
-    from mezzoguard.content_guard import Category as ContentCategory
-
     text = "a kill b"
     out = content_guard.redact(
         text,
         max_seq_length=1,
         overlap=0,
-        replace={ContentCategory.VIOLENCE: "[V]", ContentCategory.TOXIC: "[TOXIC]"},
+        replace={"violence": "[V]", "toxic": "[TOXIC]"},
     )
     assert out == "a[V] b"
 
@@ -75,20 +72,18 @@ def test_content_redact_per_category_replacement(content_guard):
         text,
         max_seq_length=1,
         overlap=0,
-        replace={ContentCategory.HATE_SPEECH: "[HATE]", ContentCategory.TOXIC: "[TOXIC]"},
+        replace={"hate-speech": "[HATE]", "toxic": "[TOXIC]"},
     )
     assert out == "a[HATE] b"
 
 
 def test_content_redact_default_replacement_for_unknown_category(content_guard):
-    from mezzoguard.content_guard import Category as ContentCategory
-
     text = "a kill b"
     out = content_guard.redact(
         text,
         max_seq_length=1,
         overlap=0,
-        replace={ContentCategory.SEXUAL: "[SEXUAL]"},
+        replace={"sexual": "[SEXUAL]"},
     )
     assert out == "a[REDACTED] b"
 
@@ -114,7 +109,7 @@ def test_batch_redact_return_spans(prompt_guard):
     assert len(spans) == 1
     assert isinstance(spans[0], Span)
     assert texts[0][spans[0].start : spans[0].end] == "a b c kill"
-    assert spans[0].category == PromptCategory.UNSAFE
+    assert spans[0].category == "unsafe"
 
     assert outputs[1] == ("hello world", [])
 

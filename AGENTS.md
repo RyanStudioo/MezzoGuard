@@ -21,8 +21,9 @@
 - `src/mezzoguard/model.py`: `GuardModel` owns shared machinery — HF pipeline loading, tokenizer chunk offsets
   (`_chunk_text`), LRU cache (`_predict`), async via `run_in_executor`. `scan`/`redact`/`async_*` delegate to
   `batch_scan`/`batch_redact`; put behavior changes in the batch methods so sync and async stay identical.
-- `prompt_guard/` and `content_guard/` are parallel packages with identical layout (`categories`, `config`, `guard`,
-  `policy`, `result`). Shared helpers live in `base_classes.py` (`ModelConfig`, `_redact_text_with_spans`, decorator factories).
+- `prompt_guard/` and `content_guard/` are parallel packages with identical layout (`config`, `guard`, `policy`,
+  `result`). Categories are plain strings; there is no category enum. Shared helpers live in `base_classes.py`
+  (`ModelConfig`, `_redact_text_with_spans`, decorator factories).
 - Version is single-sourced from `__version__` in `src/mezzoguard/__init__.py` (hatch `[tool.hatch.version]`).
 - `pyproject.toml` force-includes `src/mezzoguard/py.typed` (empty marker file, present); console script
   `mezzo-guard = mezzoguard.cli:main`.
@@ -35,7 +36,8 @@
 - `server/` (extra `server`): `create_app(guard, model_type=..., max_batch_texts=..., max_text_chars=...)` wraps an
   already-loaded `GuardModel` in FastAPI with `GET /healthz`, `GET /v1/info`, `POST /v1/scan`, `POST /v1/redact`.
   Endpoints call `async_batch_scan`/`async_batch_redact`; the lifespan ejects the model on shutdown. Policy wire
-  format is `{category_value: threshold}`; `dtype`/`device` are metadata only (no request-time overrides).
+  format is `{category: threshold}`; `/v1/info` lists the categories declared by the loaded guard's config.
+  `dtype`/`device` are metadata only (no request-time overrides).
 - `remote.py` (extra `client`): `APIPromptGuard(url)` / `APIContentGuard(url)` mirror the local Guard API
   (including `async_*` and `*_before_exec`) and rebuild real `Result`/`Span` objects; `guard.info` lazily GETs
   `/v1/info`. httpx is imported lazily; `MezzoGuardServerError` wraps non-2xx responses.
@@ -68,24 +70,24 @@
 - `batch_scan` flattens the chunks of every input text into one `_predict` call, then regroups them per text. Empty or
   whitespace-only text yields no chunks and therefore zero/empty scores.
 - Prompt guard `_from_prediction` maps each chunk label through `config.get_category_for_label`, ignores
-  `safe_category`, and reports the max remaining score as `Category.UNSAFE`. Content guard takes the per-category max
+  `safe_category`, and reports the max remaining score as `"unsafe"`. Content guard takes the per-category max
   across chunks and keeps raw `chunks`; its `_predict` calls pass `top_k=None` (all labels per chunk).
 - `_predict` de-duplicates repeated chunk texts within a batch and caches results keyed by exact chunk text.
   `mezzoguard/config.py` `cache_enabled` is checked on every call, but `cache_maxsize` is bound as a default argument
   in `TextLRUCache.__init__` at import time, so changing it at runtime does not resize existing or new caches.
 - `_redact_text_with_spans` (base_classes.py) walks spans in order, merges consecutive flagged chunks into one
   replacement, and skips text already covered by overlap, so output preserves the original text exactly except flagged
-  runs. `replace` may be a per-category dict; unknown categories fall back to `[REDACTED]`.
-- When `policy=None`, a default policy uses `confidence` as the threshold for every category (content) or for `UNSAFE`
-  (prompt); thresholds are inclusive (`score >= threshold`). Returned `Span.start` is the cursor before the flagged
-  run, so leading overlap is included.
+  runs. `replace` may be a per-category dict keyed by raw category strings; unknown categories fall back to `[REDACTED]`.
+- When `policy=None`, a default policy uses `confidence` as the threshold for every category declared in the model
+  config (content) or for `"unsafe"` (prompt); thresholds are inclusive (`score >= threshold`). Returned `Span.start`
+  is the cursor before the flagged run, so leading overlap is included.
 
-### Config and label mappings
+### Config and categories
 - `_init_guard_config` prefers a preset entry in the per-guard `MODELS_CONFIG`; a `.mezzoguard` JSON fetched from the
   HF repo (`ModelConfig.from_model_name`, also works on a local model dir) is only used when no preset exists. Neither
-  → warning, `guard.config is None`, and later label lookups fail.
-- `preset_models.py` holds the public model constants; a new model needs a constant there plus a `MODELS_CONFIG` entry,
-  or Guard warns and label lookups fail.
+  → warning, `guard.config is None`, and later label lookups fail. Categories and safe categories are raw strings.
+- `MODELS_CONFIG` in each guard's `config.py` is the source of truth for supported model ids; passing any other id
+  works when the repo ships a `.mezzoguard` file. `view_available_models()` lists those model ids.
 - Content labels pass through `ContentGuardConfig._normalize_label` (strip, lowercase, `_`/space → `-`); prompt labels
   match exactly.
 - A repo README's YAML frontmatter `new_version` marks the model deprecated and emits a `DeprecationWarning`
