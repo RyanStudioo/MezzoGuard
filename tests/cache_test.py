@@ -106,9 +106,9 @@ c.clear()
 print("\n=== Prompt Guard Cache Tests ===")
 
 try:
-    from mezzoguard.prompt_guard import Guard as PromptGuard
+    from mezzoguard import Guard
 
-    pg = PromptGuard("RyanStudio/Mezzo-Prompt-Guard-v2-Small")
+    pg = Guard("RyanStudio/Mezzo-Prompt-Guard-v2-Small")
 except Exception as e:
     skip(f"prompt guard model load skipped ({e})")
     pg = None
@@ -163,9 +163,9 @@ print("\n=== Content Guard Cache Tests ===")
 
 cg = None
 try:
-    from mezzoguard.content_guard import Guard as ContentGuard
+    from mezzoguard import Guard
 
-    cg = ContentGuard("RyanStudio/Mezzo-Content-Guard-Small")
+    cg = Guard("RyanStudio/Mezzo-Content-Guard-Small")
 except Exception as e:
     skip(f"content guard model load skipped ({e})")
 

@@ -1,16 +1,24 @@
+from __future__ import annotations
+
 import functools
 import json
 import os
 import warnings
-from typing import Literal, Self
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from ._types import (
+    DEFAULT_CONFIDENCE,
     DEFAULT_MAX_SEQ_LENGTH,
     DEFAULT_OVERLAP,
     DEFAULT_REDACTED_LABEL,
-    BaseResult,
     Span,
 )
+from .errors import UnsafeInputError
+
+if TYPE_CHECKING:
+    from .guard import Policy, Result
 
 CONFIG_FILENAME = ".mezzoguard"
 
@@ -20,9 +28,7 @@ class ModelConfig:
 
     def __init__(
         self,
-        model_type: Literal["prompt_guard", "content_guard"],
         categories: list[str],
-        safe_category: str | None = None,
         default_max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         default_overlap: int = DEFAULT_OVERLAP,
         default_replace: str = DEFAULT_REDACTED_LABEL,
@@ -30,9 +36,7 @@ class ModelConfig:
         deprecated_message: str = "",
         replacement: str = "",
     ):
-        self.model_type = model_type
         self.categories = categories
-        self.safe_category = safe_category
         self.default_max_seq_length = default_max_seq_length
         self.default_overlap = default_overlap
         self.default_replace = default_replace
@@ -41,18 +45,16 @@ class ModelConfig:
         self.replacement = replacement
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ModelConfig":
+    def from_dict(cls, data: dict) -> ModelConfig:
         return cls(
-            model_type=data["model_type"],
             categories=data["categories"],
-            safe_category=data.get("safe_category"),
             default_max_seq_length=data.get("default_max_seq_length", DEFAULT_MAX_SEQ_LENGTH),
             default_overlap=data.get("default_overlap", DEFAULT_OVERLAP),
             default_replace=data.get("default_replace", DEFAULT_REDACTED_LABEL),
         )
 
     @classmethod
-    def from_file(cls, path: str) -> "ModelConfig | None":
+    def from_file(cls, path: str) -> ModelConfig | None:
         if not os.path.isfile(path):
             return None
         try:
@@ -123,7 +125,7 @@ class ModelConfig:
 
     @classmethod
     @functools.lru_cache(maxsize=128)
-    def from_model_name(cls, model_name: str) -> "ModelConfig | None":
+    def from_model_name(cls, model_name: str) -> ModelConfig | None:
         config = None
 
         if cls._is_local_path(model_name):
@@ -152,82 +154,144 @@ class ModelConfig:
         return config
 
     def to_dict(self) -> dict:
-        d = {
-            "model_type": self.model_type,
+        return {
             "categories": self.categories,
             "default_max_seq_length": self.default_max_seq_length,
             "default_overlap": self.default_overlap,
             "default_replace": self.default_replace,
         }
-        if self.safe_category is not None:
-            d["safe_category"] = self.safe_category
-        return d
 
     def to_file(self, path: str) -> None:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2)
 
 
-class BaseConfig:
-    """Base Config class"""
+class GuardBase(ABC):
+    """Common interface implemented by local and remote guards.
 
-    def __init__(self, model_type: Literal["prompt_guard", "content_guard"]):
-        self.model_type = model_type
+    Batch methods are the primitive operations. The single-text methods and
+    ``*_before_exec`` decorators are concrete adapters built on top of them, so
+    local and remote guards share exactly one implementation.
+    """
 
+    @abstractmethod
+    def batch_scan(
+        self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
+    ) -> list[Result]: ...
 
-class PolicyResult(BaseResult):
-    def __init__(self, scores: dict[str, float], violated: dict[str, bool], categories: list[str]):
-        self.scores = scores
-        self.violated = violated
-        self.categories = categories
+    @abstractmethod
+    async def async_batch_scan(
+        self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
+    ) -> list[Result]: ...
 
-    def __bool__(self) -> bool:
-        return self.is_unsafe()
+    @abstractmethod
+    def batch_redact(
+        self,
+        texts: list[str],
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
+        policy: Policy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        return_spans: bool = False,
+        **kwargs: Any,
+    ) -> list[str] | list[tuple[str, list[Span]]]: ...
 
-    def __repr__(self) -> str:
-        violated = [category for category, is_violated in self.violated.items() if is_violated]
-        safe = [category for category, is_violated in self.violated.items() if not is_violated]
-        return f"PolicyResult(safe={safe}, violated={violated})"
+    @abstractmethod
+    async def async_batch_redact(
+        self,
+        texts: list[str],
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
+        policy: Policy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        return_spans: bool = False,
+        **kwargs: Any,
+    ) -> list[str] | list[tuple[str, list[Span]]]: ...
 
-    def is_safe(self) -> bool:
-        return not any(self.violated.values())
+    def scan(self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP) -> Result:
+        return self.batch_scan([text], max_seq_length, overlap)[0]
 
-    def is_unsafe(self) -> bool:
-        return any(self.violated.values())
+    async def async_scan(
+        self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
+    ) -> Result:
+        return (await self.async_batch_scan([text], max_seq_length, overlap))[0]
 
-    def get_violated_categories(self) -> list[str]:
-        return [category for category, violated in self.violated.items() if violated]
+    def redact(
+        self,
+        text: str,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
+        policy: Policy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        return_spans: bool = False,
+        **kwargs: Any,
+    ) -> str | tuple[str, list[Span]]:
+        return self.batch_redact(
+            [text],
+            max_seq_length,
+            overlap,
+            replace,
+            policy=policy,
+            confidence=confidence,
+            return_spans=return_spans,
+            **kwargs,
+        )[0]
 
+    async def async_redact(
+        self,
+        text: str,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
+        policy: Policy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+        return_spans: bool = False,
+        **kwargs: Any,
+    ) -> str | tuple[str, list[Span]]:
+        return (
+            await self.async_batch_redact(
+                [text],
+                max_seq_length,
+                overlap,
+                replace,
+                policy=policy,
+                confidence=confidence,
+                return_spans=return_spans,
+                **kwargs,
+            )
+        )[0]
 
-class BasePolicy:
-    """Base Policy class"""
+    def _on_unsafe(self, result: Result, confidence: float) -> None:
+        violated = [{category: score} for category, score in result.scores.items() if score >= confidence]
+        if violated:
+            raise UnsafeInputError(violated)
 
-    def __init__(self):
-        self._mapping: dict[str, float] = {}
+    def redact_before_exec(
+        self,
+        param: str,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        replace: str = DEFAULT_REDACTED_LABEL,
+        policy: Policy | None = None,
+        confidence: float = DEFAULT_CONFIDENCE,
+    ) -> Callable:
+        return _make_redact_before_exec(self.redact, self.async_redact)(
+            param, max_seq_length, overlap, replace, policy, confidence
+        )
 
-    def add_threshold(self, category: str, threshold: float) -> Self:
-        """Add a threshold to a category"""
-        self._mapping[category] = threshold
-        return self
-
-    def get_threshold(self, category: str) -> float:
-        """Get the threshold of a category"""
-        if category not in self._mapping:
-            return 0.0
-        return self._mapping[category]
-
-    def to_dict(self) -> dict[str, float]:
-        """Serialize thresholds to a plain ``{category: threshold}`` mapping."""
-        return dict(self._mapping)
-
-    def evaluate(self, result: BaseResult, **kwargs) -> PolicyResult:
-        """Evaluate a result from a guard scan"""
-        violated: dict[str, bool] = {}
-        for key, value in result.scores.items():
-            threshold = self.get_threshold(key)
-            violated[key] = value >= threshold
-        categories = list(result.scores.keys())
-        return PolicyResult(scores=result.scores, violated=violated, categories=categories)
+    def scan_before_exec(
+        self,
+        param: str,
+        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
+        overlap: int = DEFAULT_OVERLAP,
+        confidence: float = DEFAULT_CONFIDENCE,
+    ) -> Callable:
+        return _make_scan_before_exec(self.scan, self.async_scan, self._on_unsafe)(
+            param, max_seq_length, overlap, confidence
+        )
 
 
 def _redact_text_with_spans(
@@ -236,7 +300,7 @@ def _redact_text_with_spans(
     flags: list[tuple[bool, str | None]],
     replace: str | dict[str, str],
 ) -> tuple[str, list[Span]]:
-    """Shared redaction core used by prompt and content guards.
+    """Shared redaction core used by the guard.
 
     Rebuilds ``text`` chunk by chunk, replacing flagged runs of consecutive
     chunks with a single replacement. ``spans`` are ``(start_char, end_char)``
@@ -282,27 +346,23 @@ def _redact_text_with_spans(
     return "".join(parts), redaction_spans
 
 
-def _init_guard_config(name: str, ConfigClass: type, models_config: dict):
-    """Shared config-loading logic for Guard __init__ methods.
-
-    Returns (model_config, config) tuple.
-    """
-    model_config = ModelConfig.from_model_name(name)
-    config = models_config.get(name)
-
-    if model_config and not config:
-        if model_config.safe_category is not None:
-            config = ConfigClass(categories=model_config.categories, safe_category=model_config.safe_category)
-        else:
-            config = ConfigClass(categories=model_config.categories)
-
-    if not config:
+def _warn_if_deprecated(model_config: ModelConfig | None, name: str) -> None:
+    """Emit the standard deprecation warning for a model, if any."""
+    if model_config is not None and model_config.deprecated:
         warnings.warn(
-            f"No preset config found for model {name}. You may need to provide a custom config.",
-            stacklevel=2,
+            model_config.deprecated_message,
+            DeprecationWarning,
+            stacklevel=3,
         )
+        return
 
-    return model_config, config
+    readme_deprecation = ModelConfig.get_deprecation_from_readme(name)
+    if readme_deprecation:
+        warnings.warn(
+            readme_deprecation["deprecated_message"],
+            DeprecationWarning,
+            stacklevel=3,
+        )
 
 
 def _make_redact_before_exec(redact_method, async_redact_method):

@@ -1,15 +1,13 @@
-class UnsafePromptError(Exception):
-    """Raised when the model deems a prompt unsafe"""
+class UnsafeInputError(Exception):
+    """Raised when the model deems input unsafe.
 
-    def __init__(self, confidence: float):
-        super().__init__(f"Prompt was flagged as unsafe by the model with a confidence of {confidence:.2f}")
-
-
-class UnsafeContentError(Exception):
-    """Raised when the model deems content unsafe"""
+    ``categories`` contains one ``{category: score}`` entry per violated
+    category. Prompt-style results are represented as ``{"unsafe": score}``.
+    """
 
     def __init__(self, categories: list[dict[str, float]]):
-        super().__init__(f"Content was flagged as unsafe by the model with the following categories: {categories}")
+        self.categories = categories
+        super().__init__(f"Input was flagged as unsafe by the model with the following categories: {categories}")
 
 
 class MezzoGuardServerError(Exception):

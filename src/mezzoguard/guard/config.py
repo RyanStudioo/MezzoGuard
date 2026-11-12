@@ -1,15 +1,19 @@
-from ..base_classes import BaseConfig
+from __future__ import annotations
 
 
-class ContentGuardConfig(BaseConfig):
-    """Configurations for Content Guard"""
+class GuardConfig:
+    """Category configuration for the unified guard.
+
+    Only scored categories are listed. A model label that is not configured
+    (for example ``"safe"`` from a binary prompt classifier) is ignored.
+    """
 
     def __init__(self, categories: list[str]):
-        super().__init__("content_guard")
-        self.categories = categories
-        self._normalized_categories = {self._normalize_label(category): category for category in categories}
+        self.categories = [category for category in categories if self._normalize_label(category) != "safe"]
+        self._normalized_categories = {self._normalize_label(category): category for category in self.categories}
 
-    def _normalize_label(self, label: str) -> str:
+    @staticmethod
+    def _normalize_label(label: str) -> str:
         return label.strip().lower().replace("_", "-").replace(" ", "-")
 
     def get_category_for_label(self, label: str) -> str:
@@ -20,17 +24,24 @@ class ContentGuardConfig(BaseConfig):
             return self._normalized_categories[normalized_label]
         raise ValueError(f"Label '{label}' not found in categories")
 
+    def to_dict(self) -> dict:
+        return {"categories": self.categories}
+
 
 CONFIGS = {
-    "mezzo-content-guard-preview": ContentGuardConfig(
+    "unsafe": GuardConfig(categories=["unsafe"]),
+    "mezzo-content-guard-preview": GuardConfig(
         categories=["divisive", "hate-speech", "self-harm", "sexual", "toxic", "violence"]
     ),
-    "mezzo-content-guard-v1": ContentGuardConfig(
-        categories=["hate-speech", "self-harm", "sexual", "toxic", "violence"]
-    ),
+    "mezzo-content-guard-v1": GuardConfig(categories=["hate-speech", "self-harm", "sexual", "toxic", "violence"]),
 }
 
 MODELS_CONFIG = {
+    "RyanStudio/Mezzo-Prompt-Guard-v2-Large": CONFIGS["unsafe"],
+    "RyanStudio/Mezzo-Prompt-Guard-v2-Base": CONFIGS["unsafe"],
+    "RyanStudio/Mezzo-Prompt-Guard-v2-Small": CONFIGS["unsafe"],
+    "meta-llama/Llama-Prompt-Guard-2-22M": CONFIGS["unsafe"],
+    "meta-llama/Llama-Prompt-Guard-2-86M": CONFIGS["unsafe"],
     "RyanStudio/Mezzo-Content-Guard-Large-Preview": CONFIGS["mezzo-content-guard-preview"],
     "RyanStudio/Mezzo-Content-Guard-Large": CONFIGS["mezzo-content-guard-v1"],
     "RyanStudio/Mezzo-Content-Guard-Base": CONFIGS["mezzo-content-guard-v1"],
@@ -43,4 +54,5 @@ MODELS_CONFIG = {
     "RyanStudio/Mezzo-Content-Guard-v1.5-Nano-Preview": CONFIGS["mezzo-content-guard-v1"],
 }
 
-__all__ = ["ContentGuardConfig", "MODELS_CONFIG"]
+
+__all__ = ["CONFIGS", "MODELS_CONFIG", "GuardConfig"]

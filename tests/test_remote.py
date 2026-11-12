@@ -4,9 +4,8 @@ import time
 import pytest
 import uvicorn
 
-from mezzoguard.content_guard import ContentPolicy
-from mezzoguard.errors import UnsafePromptError
-from mezzoguard.remote import APIContentGuard, APIPromptGuard
+from mezzoguard import APIGuard, GuardBase, Policy
+from mezzoguard.errors import UnsafeInputError
 from mezzoguard.server import create_app
 
 
@@ -31,41 +30,41 @@ def stop_server(server: uvicorn.Server, thread: threading.Thread) -> None:
 
 @pytest.fixture
 def prompt_url(prompt_guard):
-    server, thread, url = start_server(create_app(prompt_guard, model_type="prompt_guard"))
+    server, thread, url = start_server(create_app(prompt_guard))
     yield url
     stop_server(server, thread)
 
 
 @pytest.fixture
 def content_url(content_guard):
-    server, thread, url = start_server(create_app(content_guard, model_type="content_guard"))
+    server, thread, url = start_server(create_app(content_guard))
     yield url
     stop_server(server, thread)
 
 
 def test_api_info(prompt_url):
-    with APIPromptGuard(prompt_url) as guard:
-        assert guard.info["model_type"] == "prompt_guard"
-        assert guard.info["categories"] == ["safe", "unsafe"]
+    with APIGuard(prompt_url) as guard:
+        assert isinstance(guard, GuardBase)
+        assert guard.info["categories"] == ["unsafe"]
 
 
 def test_remote_scan_matches_local(prompt_url):
-    with APIPromptGuard(prompt_url) as client:
+    with APIGuard(prompt_url) as client:
         result = client.scan("kill the process")
     assert result.is_unsafe()
     assert result.scores["unsafe"] == 0.99
-    assert result.chunks == [{"label": "unsafe", "score": 0.99}]
+    assert result.chunks == [[{"label": "unsafe", "score": 0.99}]]
 
 
 def test_remote_batch_scan(content_url):
-    with APIContentGuard(content_url) as client:
+    with APIGuard(content_url) as client:
         results = client.batch_scan(["I will kill you", "hello"])
     assert results[0].scores["violence"] == 0.98
     assert results[1].scores["violence"] == 0.05
 
 
 def test_remote_redact_with_spans(content_url):
-    with APIContentGuard(content_url) as client:
+    with APIGuard(content_url) as client:
         redacted, spans = client.redact("I will kill you with a weapon", return_spans=True)
     assert "[REDACTED]" in redacted
     assert spans[0].category == "violence"
@@ -73,35 +72,32 @@ def test_remote_redact_with_spans(content_url):
 
 
 def test_remote_redact_custom_replacements(content_url):
-    with APIContentGuard(content_url) as client:
+    with APIGuard(content_url) as client:
         redacted = client.redact("I will kill you", replace={"violence": "[VIOLENCE]"})
     assert redacted == "[VIOLENCE]"
 
 
 def test_remote_redact_policy(content_url):
-    policy = ContentPolicy()
-    for category in ["hate-speech", "self-harm", "sexual", "toxic", "violence"]:
-        policy.add_threshold(category, 0.999)
-    with APIContentGuard(content_url) as client:
-        untouched = client.redact("I will kill you", policy=policy)
+    with APIGuard(content_url) as client:
+        untouched = client.redact("I will kill you", policy=Policy(default_threshold=0.999))
     assert untouched == "I will kill you"
 
 
 def test_remote_scan_before_exec(prompt_url):
-    client = APIPromptGuard(prompt_url)
+    client = APIGuard(prompt_url)
 
     @client.scan_before_exec(param="prompt", confidence=0.5)
     def chat(prompt: str) -> str:
         return prompt
 
     assert chat("hello") == "hello"
-    with pytest.raises(UnsafePromptError):
+    with pytest.raises(UnsafeInputError):
         chat("kill")
     client.close()
 
 
 async def test_remote_async_scan(prompt_url):
-    client = APIPromptGuard(prompt_url)
+    client = APIGuard(prompt_url)
     try:
         results = await client.async_batch_scan(["hello", "kill"])
         assert results[0].is_unsafe() is False
@@ -111,7 +107,7 @@ async def test_remote_async_scan(prompt_url):
 
 
 async def test_remote_async_redact(content_url):
-    client = APIContentGuard(content_url)
+    client = APIGuard(content_url)
     try:
         redacted = await client.async_redact("I will kill you")
         assert redacted == "[REDACTED]"

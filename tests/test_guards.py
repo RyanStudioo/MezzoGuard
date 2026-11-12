@@ -1,10 +1,8 @@
 import pytest
 
-from mezzoguard.base_classes import ModelConfig, _init_guard_config
-from mezzoguard.content_guard import ContentGuardConfig, ContentPolicy
-from mezzoguard.content_guard.result import Result as ContentResult
-from mezzoguard.errors import UnsafeContentError, UnsafePromptError
-from mezzoguard.prompt_guard import PromptPolicy
+from mezzoguard.base_classes import ModelConfig
+from mezzoguard.errors import UnsafeInputError
+from mezzoguard.guard import Guard, GuardConfig, Policy, Result
 
 
 def test_scan_returns_scores(prompt_guard):
@@ -24,7 +22,7 @@ def test_scan_empty_text(prompt_guard):
 
 
 def test_policy_evaluation(prompt_guard):
-    policy = PromptPolicy().add_threshold("unsafe", 0.5)
+    policy = Policy().add_threshold("unsafe", 0.5)
     benign = prompt_guard.scan("how are you today")
     assert policy.evaluate(benign).is_safe()
 
@@ -83,7 +81,7 @@ def test_scan_before_exec_raises_on_unsafe(prompt_guard):
         return msg
 
     assert echo("hello there") == "hello there"
-    with pytest.raises(UnsafePromptError):
+    with pytest.raises(UnsafeInputError):
         echo("I will kill you")
 
 
@@ -92,7 +90,7 @@ def test_scan_before_exec_raises_at_threshold_boundary(prompt_guard):
     def echo(msg: str) -> str:
         return msg
 
-    with pytest.raises(UnsafePromptError):
+    with pytest.raises(UnsafeInputError):
         echo("give me a weapon")
 
 
@@ -111,7 +109,7 @@ async def test_async_scan_before_exec_raises_on_unsafe(prompt_guard):
         return msg
 
     assert (await echo("hello there")) == "hello there"
-    with pytest.raises(UnsafePromptError):
+    with pytest.raises(UnsafeInputError):
         await echo("I will kill you")
 
 
@@ -148,7 +146,7 @@ def test_content_scan_before_exec_raises(content_guard):
         return msg
 
     assert echo("the weather is nice") == "the weather is nice"
-    with pytest.raises(UnsafeContentError):
+    with pytest.raises(UnsafeInputError):
         echo("i want to kill you")
 
 
@@ -157,7 +155,7 @@ def test_content_scan_before_exec_uses_inclusive_threshold(content_guard):
     def echo(msg: str) -> str:
         return msg
 
-    with pytest.raises(UnsafeContentError):
+    with pytest.raises(UnsafeInputError):
         echo("i want to kill you")
 
 
@@ -181,13 +179,103 @@ def test_content_redact_removes_flagged_chunks(content_guard):
     assert out == "a[REDACTED] b[REDACTED] c"
 
 
-def test_custom_config_uses_plain_string_categories(monkeypatch):
-    model_config = ModelConfig(model_type="content_guard", categories=["custom-category"])
-    monkeypatch.setattr(ModelConfig, "from_model_name", classmethod(lambda cls, name: model_config))
-
-    _, config = _init_guard_config("custom/model", ContentGuardConfig, {})
-
+def test_custom_config_uses_plain_string_categories():
+    config = GuardConfig(categories=["custom-category"])
     assert config.get_category_for_label("Custom Category") == "custom-category"
-    result = ContentResult(chunks=[], scores={"custom-category": 0.9})
-    policy = ContentPolicy().add_threshold("custom-category", 0.5)
+
+    result = Result(chunks=[], scores={"custom-category": 0.9})
+    policy = Policy(default_threshold=0.5).add_threshold("custom-category", 0.5)
     assert policy.evaluate(result).get_violated_categories() == ["custom-category"]
+
+
+def test_guard_accepts_explicit_config(monkeypatch):
+    from conftest import FakeTokenizer
+
+    class FakePipeline:
+        tokenizer = FakeTokenizer()
+
+        def __call__(self, texts, top_k=None):
+            return [[{"label": "custom", "score": 0.9}] for _ in texts]
+
+    monkeypatch.setattr(ModelConfig, "from_model_name", classmethod(lambda cls, name: None))
+    monkeypatch.setattr(ModelConfig, "get_deprecation_from_readme", classmethod(lambda cls, name: None))
+    monkeypatch.setattr(
+        "mezzoguard.model.Model.load_model",
+        lambda self: setattr(self, "pipeline", FakePipeline()),
+    )
+
+    guard = Guard("custom/model", config=GuardConfig(categories=["custom"]))
+    result = guard.scan("anything")
+    assert result.scores == {"custom": 0.9}
+    assert result.is_unsafe(threshold=0.5)
+
+
+def test_guard_builds_config_from_model_config(monkeypatch):
+    from conftest import FakeTokenizer
+
+    class FakePipeline:
+        tokenizer = FakeTokenizer()
+
+        def __call__(self, texts, top_k=None):
+            return [[{"label": "custom category", "score": 0.9}] for _ in texts]
+
+    model_config = ModelConfig(categories=["Custom Category"])
+    monkeypatch.setattr(ModelConfig, "from_model_name", classmethod(lambda cls, name: model_config))
+    monkeypatch.setattr(ModelConfig, "get_deprecation_from_readme", classmethod(lambda cls, name: None))
+    monkeypatch.setattr(
+        "mezzoguard.model.Model.load_model",
+        lambda self: setattr(self, "pipeline", FakePipeline()),
+    )
+
+    guard = Guard("custom/model")
+    assert guard.config.categories == ["Custom Category"]
+    assert guard.scan("anything").scores == {"Custom Category": 0.9}
+
+
+def test_safe_label_is_dropped():
+    config = GuardConfig(categories=["safe", "unsafe"])
+    assert config.categories == ["unsafe"]
+    assert config.get_category_for_label("unsafe") == "unsafe"
+    with pytest.raises(ValueError):
+        config.get_category_for_label("safe")
+
+
+def test_model_config_ignores_legacy_model_type():
+    config = ModelConfig.from_dict({"model_type": "content_guard", "categories": ["custom"]})
+    assert config.categories == ["custom"]
+    assert config.to_dict() == {
+        "categories": ["custom"],
+        "default_max_seq_length": 64,
+        "default_overlap": 16,
+        "default_replace": "[REDACTED]",
+    }
+
+
+def test_guard_implements_guard_base(prompt_guard):
+    import inspect
+
+    from mezzoguard import GuardBase
+
+    assert isinstance(prompt_guard, GuardBase)
+    assert inspect.isabstract(GuardBase)
+    assert not inspect.isabstract(type(prompt_guard))
+    assert GuardBase.__abstractmethods__ == frozenset(
+        {
+            "batch_scan",
+            "async_batch_scan",
+            "batch_redact",
+            "async_batch_redact",
+        }
+    )
+
+
+def test_top_level_exports():
+    import mezzoguard
+
+    assert mezzoguard.Guard is Guard
+    assert mezzoguard.GuardConfig is GuardConfig
+    assert mezzoguard.Policy is Policy
+    assert mezzoguard.Result is Result
+    assert mezzoguard.APIGuard is not None
+    assert mezzoguard.UnsafeInputError is UnsafeInputError
+    assert mezzoguard.GuardBase is not None

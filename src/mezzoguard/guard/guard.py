@@ -1,100 +1,109 @@
+from __future__ import annotations
+
 import asyncio
 import functools
 import warnings
 from typing import Any
 
-from .._types import DEFAULT_CONFIDENCE, DEFAULT_MAX_SEQ_LENGTH, DEFAULT_OVERLAP, DEFAULT_REDACTED_LABEL, Span
-from ..base_classes import (
-    ModelConfig,
-    _init_guard_config,
-    _make_redact_before_exec,
-    _make_scan_before_exec,
-    _redact_text_with_spans,
+from .._types import (
+    DEFAULT_CONFIDENCE,
+    DEFAULT_MAX_SEQ_LENGTH,
+    DEFAULT_OVERLAP,
+    DEFAULT_REDACTED_LABEL,
+    Span,
 )
-from ..errors import UnsafeContentError
-from ..model import GuardModel
-from .config import MODELS_CONFIG, ContentGuardConfig
-from .policy import ContentPolicy
+from ..base_classes import GuardBase, ModelConfig, _redact_text_with_spans, _warn_if_deprecated
+from ..model import Model
+from .config import MODELS_CONFIG, GuardConfig
+from .policy import Policy
 from .result import Result
 
 
-class Guard(GuardModel):
-    """A Content Guard Model"""
+class Guard(GuardBase, Model):
+    """Unified prompt and content guard.
 
-    def __init__(self, name: str, **kwargs: Any):
-        super().__init__(name, task="text-classification", **kwargs)
+    The model's category configuration decides how predictions are exposed:
 
-        self.model_config: ModelConfig | None = None
-        self.model_config, self.config = _init_guard_config(name, ContentGuardConfig, MODELS_CONFIG)
+    * prompt models list only ``"unsafe"`` and produce ``{"unsafe": score}``;
+    * content models produce one score per configured category.
 
-        if self.model_config is not None and self.model_config.deprecated:
+    Both use the same chunking, caching, redaction and async machinery. Set
+    thresholds per category with ``Policy`` or use ``Result.is_unsafe``:
+
+    .. code-block:: python
+
+        result = guard.scan(text)
+        result.is_unsafe(threshold=0.5)
+        result.is_unsafe(policy=Policy(default_threshold=0.5).add_threshold("violence", 0.7))
+    """
+
+    def __init__(self, name: str, config: GuardConfig | dict | None = None, **kwargs: Any):
+        super().__init__(name=name, task="text-classification", **kwargs)
+
+        self.model_config = ModelConfig.from_model_name(name)
+        if isinstance(config, dict):
+            config = GuardConfig(**config)
+        if config is None:
+            config = MODELS_CONFIG.get(name)
+        if config is None and self.model_config is not None:
+            config = GuardConfig(categories=self.model_config.categories)
+        if config is None:
             warnings.warn(
-                self.model_config.deprecated_message,
-                DeprecationWarning,
+                f"No preset config found for model {name}. You may need to provide a custom config.",
                 stacklevel=2,
             )
-        else:
-            readme_deprecation = ModelConfig.get_deprecation_from_readme(name)
-            if readme_deprecation:
-                warnings.warn(
-                    readme_deprecation["deprecated_message"],
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
+        self.config = config
+
+        _warn_if_deprecated(self.model_config, name)
+
+    @property
+    def categories(self) -> list[str]:
+        return list(self.config.categories) if self.config is not None else []
 
     def _get_category_for_label(self, label: str) -> str | None:
+        if self.config is None:
+            return None
         try:
             return self.config.get_category_for_label(label)
         except ValueError:
             return None
 
-    def _scores_from_chunk(self, chunk_result: list[dict]) -> dict[str, float]:
-        max_scores: dict[str, float] = {}
-        for pred in chunk_result:
-            label = pred.get("label", "")
-            category = self._get_category_for_label(label)
-            if category is None:
-                continue
-            score = pred.get("score", 0.0)
-            if category not in max_scores or score > max_scores[category]:
-                max_scores[category] = score
-        return max_scores
+    @staticmethod
+    def _normalize_chunk(chunk: dict | list[dict]) -> list[dict]:
+        """Accept both top-1 (dict) and top-k/all-labels (list) chunk outputs."""
+        return [chunk] if isinstance(chunk, dict) else list(chunk)
 
-    def _from_prediction(self, results: list[list[dict]]) -> Result:
-        max_scores: dict[str, float] = {}
-        for chunk_result in results:
-            chunk_scores = self._scores_from_chunk(chunk_result)
-            for category, score in chunk_scores.items():
-                if category not in max_scores or score > max_scores[category]:
-                    max_scores[category] = score
-        return Result(chunks=results, scores=max_scores)
+    def _scores_from_chunks(self, chunks: list[list[dict]], initialize: bool = False) -> dict[str, float]:
+        scores = {category: 0.0 for category in self.categories} if initialize else {}
+        for chunk in chunks:
+            for pred in chunk:
+                category = self._get_category_for_label(pred.get("label", ""))
+                if category is None:
+                    continue
+                score = pred.get("score", 0.0)
+                if category not in scores or score > scores[category]:
+                    scores[category] = score
+        return scores
 
-    def _resolve_redaction_policy(self, policy: ContentPolicy | None, confidence: float) -> ContentPolicy:
+    def _from_prediction(self, chunks: list[dict] | list[list[dict]]) -> Result:
+        normalized = [self._normalize_chunk(chunk) for chunk in chunks]
+        return Result(chunks=normalized, scores=self._scores_from_chunks(normalized, initialize=True))
+
+    def _resolve_redaction_policy(self, policy: Policy | None, confidence: float) -> Policy:
         if policy is not None:
             return policy
-        default_policy = ContentPolicy()
-        if self.config is not None:
-            for category in self.config.categories:
-                default_policy.add_threshold(category, confidence)
-        return default_policy
+        return Policy(default_threshold=confidence)
 
-    def _chunk_violation(self, chunk_result: list[dict], policy: ContentPolicy) -> str | None:
-        scores = self._scores_from_chunk(chunk_result)
-        verdict = policy.evaluate(Result(chunks=[chunk_result], scores=scores))
+    def _chunk_violation(self, chunk_result: list[dict], policy: Policy) -> str | None:
+        normalized = self._normalize_chunk(chunk_result)
+        scores = self._scores_from_chunks([normalized])
+        verdict = policy.evaluate(Result(chunks=[normalized], scores=scores))
         if not verdict:
             return None
         violated = verdict.get_violated_categories()
         if not violated:
             return None
         return max(violated, key=lambda category: scores.get(category, 0.0))
-
-    def _on_unsafe_content(self, result: Result, confidence: float) -> None:
-        violated = []
-        for cat, score in result.scores.items():
-            if score >= confidence:
-                violated.append({cat: score})
-        if violated:
-            raise UnsafeContentError(violated)
 
     def batch_scan(
         self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
@@ -132,7 +141,7 @@ class Guard(GuardModel):
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
         replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
-        policy: ContentPolicy | None = None,
+        policy: Policy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
         **kwargs: Any,
@@ -162,7 +171,7 @@ class Guard(GuardModel):
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
         replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
-        policy: ContentPolicy | None = None,
+        policy: Policy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
         **kwargs: Any,
@@ -192,31 +201,6 @@ class Guard(GuardModel):
             redacted, redaction_spans = _redact_text_with_spans(text, spans, flags, replace)
             outputs.append((redacted, redaction_spans) if return_spans else redacted)
         return outputs
-
-    def redact_before_exec(
-        self,
-        param: str,
-        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
-        overlap: int = DEFAULT_OVERLAP,
-        replace: str = DEFAULT_REDACTED_LABEL,
-        policy: ContentPolicy | None = None,
-        confidence: float = DEFAULT_CONFIDENCE,
-        **kwargs: Any,
-    ):
-        return _make_redact_before_exec(self.redact, self.async_redact)(
-            param, max_seq_length, overlap, replace, policy, confidence
-        )
-
-    def scan_before_exec(
-        self,
-        param: str,
-        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
-        overlap: int = DEFAULT_OVERLAP,
-        confidence: float = DEFAULT_CONFIDENCE,
-    ):
-        return _make_scan_before_exec(self.scan, self.async_scan, self._on_unsafe_content)(
-            param, max_seq_length, overlap, confidence
-        )
 
 
 __all__ = ["Guard"]

@@ -1,6 +1,6 @@
 import time
 
-from mezzoguard.content_guard import Guard
+from mezzoguard import Guard
 
 
 def benchmark(model_name: str, **kwargs) -> float:

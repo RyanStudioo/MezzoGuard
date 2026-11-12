@@ -1,14 +1,12 @@
 import pytest
 
 from mezzoguard import cli
-from mezzoguard.base_classes import ModelConfig
 
 
 def test_parser_defaults():
     args = cli.build_parser().parse_args(["serve", "some/model"])
     assert args.command == "serve"
     assert args.model == "some/model"
-    assert args.model_type == "auto"
     assert args.host == "127.0.0.1"
     assert args.port == 8000
     assert args.dtype == "auto"
@@ -26,27 +24,10 @@ def test_parser_requires_a_command():
         cli.build_parser().parse_args([])
 
 
-def test_detect_model_type_presets():
-    assert cli.detect_model_type("RyanStudio/Mezzo-Prompt-Guard-v2-Small") == "prompt_guard"
-    assert cli.detect_model_type("RyanStudio/Mezzo-Content-Guard-Small") == "content_guard"
-
-
-def test_detect_model_type_from_config(monkeypatch):
-    config = ModelConfig(model_type="content_guard", categories=[])
-    monkeypatch.setattr(ModelConfig, "from_model_name", classmethod(lambda cls, name: config))
-    assert cli.detect_model_type("some/unknown") == "content_guard"
-
-
-def test_detect_model_type_unknown(monkeypatch):
-    monkeypatch.setattr(ModelConfig, "from_model_name", classmethod(lambda cls, name: None))
-    assert cli.detect_model_type("some/unknown") is None
-
-
 def test_serve_builds_guard_and_runs_server(monkeypatch, prompt_guard):
     captured = {}
 
-    def fake_create_guard(model_type, model, **kwargs):
-        captured["model_type"] = model_type
+    def fake_create_guard(model, **kwargs):
         captured["model"] = model
         captured["kwargs"] = kwargs
         return prompt_guard
@@ -77,7 +58,6 @@ def test_serve_builds_guard_and_runs_server(monkeypatch, prompt_guard):
     )
 
     assert exit_code == 0
-    assert captured["model_type"] == "prompt_guard"
     assert captured["model"] == "RyanStudio/Mezzo-Prompt-Guard-v2-Small"
     assert captured["kwargs"] == {
         "dtype": "float16",
@@ -91,21 +71,18 @@ def test_serve_builds_guard_and_runs_server(monkeypatch, prompt_guard):
     assert captured["app"] is not None
 
 
-def test_serve_explicit_type(monkeypatch, prompt_guard):
+def test_create_guard_dispatches_unified(monkeypatch):
+    import mezzoguard.guard as guard_module
+
     captured = {}
 
-    def fake_create_guard(model_type, model, **kwargs):
-        captured["model_type"] = model_type
-        return prompt_guard
+    class FakeGuard:
+        def __init__(self, model, **kwargs):
+            captured["model"] = model
+            captured["kwargs"] = kwargs
 
-    monkeypatch.setattr(cli, "create_guard", fake_create_guard)
-    monkeypatch.setattr(cli, "run_server", lambda *args, **kwargs: None)
+    monkeypatch.setattr(guard_module, "Guard", FakeGuard)
 
-    assert cli.main(["serve", "some/model", "--type", "content"]) == 0
-    assert captured["model_type"] == "content_guard"
-
-
-def test_serve_unknown_model_type(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "detect_model_type", lambda model: None)
-    assert cli.main(["serve", "some/unknown"]) == 2
-    assert "Could not detect" in capsys.readouterr().out
+    guard = cli.create_guard("some/model", dtype="float16")
+    assert isinstance(guard, FakeGuard)
+    assert captured == {"model": "some/model", "kwargs": {"dtype": "float16"}}

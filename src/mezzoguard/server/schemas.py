@@ -11,6 +11,7 @@ class ScanRequest(BaseModel):
     overlap: int | None = Field(default=None, ge=0)
     confidence: float = Field(default=DEFAULT_CONFIDENCE, ge=0.0, le=1.0)
     policy: dict[str, float] | None = None
+    default_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     include_chunks: bool = False
 
 
@@ -22,7 +23,6 @@ class ScanResult(BaseModel):
 
 
 class ScanResponse(BaseModel):
-    model_type: str
     results: list[ScanResult]
 
 
@@ -34,6 +34,7 @@ class RedactRequest(BaseModel):
     replacements: dict[str, str] | None = None
     confidence: float = Field(default=DEFAULT_CONFIDENCE, ge=0.0, le=1.0)
     policy: dict[str, float] | None = None
+    default_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     return_spans: bool = False
 
 
@@ -50,13 +51,11 @@ class RedactResult(BaseModel):
 
 
 class RedactResponse(BaseModel):
-    model_type: str
     results: list[RedactResult]
 
 
 class InfoResponse(BaseModel):
     model: str
-    model_type: str
     categories: list[str]
     default_max_seq_length: int
     default_overlap: int
@@ -70,4 +69,3 @@ class HealthResponse(BaseModel):
     status: str
     ready: bool
     model: str
-    model_type: str

@@ -1,7 +1,7 @@
 import statistics
 import time
 
-from mezzoguard.content_guard import Guard
+from mezzoguard import Guard
 
 MESSAGES = [
     "Hello, how are you today?",

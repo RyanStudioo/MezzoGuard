@@ -3,9 +3,8 @@ import re
 import pytest
 
 from mezzoguard.base_classes import ModelConfig
-from mezzoguard.content_guard import Guard as ContentGuard
+from mezzoguard.guard import Guard
 from mezzoguard.model import Model
-from mezzoguard.prompt_guard import Guard as PromptGuard
 
 
 class OffsetEncoding:
@@ -79,14 +78,14 @@ class FakePipeline:
 def prompt_guard(monkeypatch):
     pipeline = FakePipeline(FakeTokenizer(), mode="prompt")
     make_guard(monkeypatch, pipeline)
-    return PromptGuard("RyanStudio/Mezzo-Prompt-Guard-v2-Small")
+    return Guard("RyanStudio/Mezzo-Prompt-Guard-v2-Small")
 
 
 @pytest.fixture
 def content_guard(monkeypatch):
     pipeline = FakePipeline(FakeTokenizer(), mode="content")
     make_guard(monkeypatch, pipeline)
-    return ContentGuard("RyanStudio/Mezzo-Content-Guard-Small")
+    return Guard("RyanStudio/Mezzo-Content-Guard-Small")
 
 
 def make_guard(monkeypatch, pipeline):

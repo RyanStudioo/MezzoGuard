@@ -7,17 +7,11 @@ from ._types import (
     DEFAULT_MAX_SEQ_LENGTH,
     DEFAULT_OVERLAP,
     DEFAULT_REDACTED_LABEL,
-    BaseResult,
     Span,
 )
-from .base_classes import (
-    BasePolicy,
-    _make_redact_before_exec,
-    _make_scan_before_exec,
-)
-from .content_guard import Result as ContentResult
-from .errors import MezzoGuardServerError, UnsafeContentError, UnsafePromptError
-from .prompt_guard import Result as PromptResult
+from .base_classes import GuardBase
+from .errors import MezzoGuardServerError
+from .guard import Policy, Result
 
 
 def _require_httpx():
@@ -40,16 +34,13 @@ def _handle_response(response: Any) -> Any:
     return response.json()
 
 
-class APIGuard:
-    """Base class for guards that call a Mezzo Guard HTTP server.
+class APIGuard(GuardBase):
+    """Unified guard that calls a Mezzo Guard HTTP server.
 
     Mirrors the local ``Guard`` API (``scan``, ``batch_scan``, ``redact``,
     ``batch_redact`` and their async variants) so it can be swapped in without
-    loading a model locally. Use ``APIPromptGuard`` or ``APIContentGuard``.
+    loading a model locally.
     """
-
-    model_type: str
-    _result_cls: type[BaseResult]
 
     def __init__(self, base_url: str, timeout: float = 30.0):
         httpx = _require_httpx()
@@ -115,7 +106,7 @@ class APIGuard:
         max_seq_length: int,
         overlap: int,
         replace: str | dict[str, str],
-        policy: BasePolicy | None,
+        policy: Policy | None,
         confidence: float,
         return_spans: bool,
     ) -> dict:
@@ -133,67 +124,36 @@ class APIGuard:
             payload["replace"] = replace
         if policy is not None:
             payload["policy"] = policy.to_dict()
+            payload["default_threshold"] = policy.default_threshold
         return payload
 
-    def _build_result(self, payload: dict) -> BaseResult:
+    def _build_result(self, payload: dict) -> Result:
         scores = dict(payload["scores"])
         chunks = payload.get("chunks")
-        return self._result_cls(chunks=chunks if chunks is not None else [], scores=scores)
+        return Result(chunks=chunks if chunks is not None else [], scores=scores)
 
     def _build_spans(self, payload: list[dict]) -> list[Span]:
-        spans = []
-        for item in payload:
-            spans.append(
-                Span(
-                    start=item["start"],
-                    end=item["end"],
-                    category=item.get("category"),
-                    replacement=item.get("replacement", ""),
-                )
+        return [
+            Span(
+                start=item["start"],
+                end=item["end"],
+                category=item.get("category"),
+                replacement=item.get("replacement", ""),
             )
-        return spans
-
-    def scan(
-        self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
-    ) -> BaseResult:
-        return self.batch_scan([text], max_seq_length, overlap)[0]
+            for item in payload
+        ]
 
     def batch_scan(
         self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
-    ) -> list[BaseResult]:
+    ) -> list[Result]:
         payload = self._request("POST", "/v1/scan", json=self._scan_payload(texts, max_seq_length, overlap))
         return [self._build_result(item) for item in payload["results"]]
 
-    async def async_scan(
-        self, text: str, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
-    ) -> BaseResult:
-        return (await self.async_batch_scan([text], max_seq_length, overlap))[0]
-
     async def async_batch_scan(
         self, texts: list[str], max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH, overlap: int = DEFAULT_OVERLAP
-    ) -> list[BaseResult]:
+    ) -> list[Result]:
         payload = await self._async_request("POST", "/v1/scan", json=self._scan_payload(texts, max_seq_length, overlap))
         return [self._build_result(item) for item in payload["results"]]
-
-    def redact(
-        self,
-        text: str,
-        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
-        overlap: int = DEFAULT_OVERLAP,
-        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
-        policy: BasePolicy | None = None,
-        confidence: float = DEFAULT_CONFIDENCE,
-        return_spans: bool = False,
-    ) -> str | tuple[str, list[Span]]:
-        return self.batch_redact(
-            [text],
-            max_seq_length,
-            overlap,
-            replace,
-            policy=policy,
-            confidence=confidence,
-            return_spans=return_spans,
-        )[0]
 
     def batch_redact(
         self,
@@ -201,7 +161,7 @@ class APIGuard:
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
         replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
-        policy: BasePolicy | None = None,
+        policy: Policy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
         **kwargs: Any,
@@ -213,35 +173,13 @@ class APIGuard:
         )
         return self._build_redact_outputs(payload["results"], return_spans)
 
-    async def async_redact(
-        self,
-        text: str,
-        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
-        overlap: int = DEFAULT_OVERLAP,
-        replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
-        policy: BasePolicy | None = None,
-        confidence: float = DEFAULT_CONFIDENCE,
-        return_spans: bool = False,
-    ) -> str | tuple[str, list[Span]]:
-        return (
-            await self.async_batch_redact(
-                [text],
-                max_seq_length,
-                overlap,
-                replace,
-                policy=policy,
-                confidence=confidence,
-                return_spans=return_spans,
-            )
-        )[0]
-
     async def async_batch_redact(
         self,
         texts: list[str],
         max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
         overlap: int = DEFAULT_OVERLAP,
         replace: str | dict[str, str] = DEFAULT_REDACTED_LABEL,
-        policy: BasePolicy | None = None,
+        policy: Policy | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
         return_spans: bool = False,
         **kwargs: Any,
@@ -264,60 +202,5 @@ class APIGuard:
                 outputs.append(item["text"])
         return outputs
 
-    def _on_unsafe(self, result: BaseResult, confidence: float) -> None:
-        raise NotImplementedError
 
-    def redact_before_exec(
-        self,
-        param: str,
-        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
-        overlap: int = DEFAULT_OVERLAP,
-        replace: str = DEFAULT_REDACTED_LABEL,
-        policy: BasePolicy | None = None,
-        confidence: float = DEFAULT_CONFIDENCE,
-    ):
-        return _make_redact_before_exec(self.redact, self.async_redact)(
-            param, max_seq_length, overlap, replace, policy, confidence
-        )
-
-    def scan_before_exec(
-        self,
-        param: str,
-        max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
-        overlap: int = DEFAULT_OVERLAP,
-        confidence: float = DEFAULT_CONFIDENCE,
-    ):
-        return _make_scan_before_exec(self.scan, self.async_scan, self._on_unsafe)(
-            param, max_seq_length, overlap, confidence
-        )
-
-
-class APIPromptGuard(APIGuard):
-    """Prompt guard that calls a Mezzo Guard HTTP server."""
-
-    model_type = "prompt_guard"
-    _result_cls = PromptResult
-
-    def _on_unsafe(self, result: BaseResult, confidence: float) -> None:
-        unsafe_score = result.scores.get("unsafe", 0.0)
-        if unsafe_score >= confidence:
-            raise UnsafePromptError(unsafe_score)
-
-
-class APIContentGuard(APIGuard):
-    """Content guard that calls a Mezzo Guard HTTP server."""
-
-    model_type = "content_guard"
-    _result_cls = ContentResult
-
-    def _on_unsafe(self, result: BaseResult, confidence: float) -> None:
-        violated = [{cat: score} for cat, score in result.scores.items() if score >= confidence]
-        if violated:
-            raise UnsafeContentError(violated)
-
-
-__all__ = [
-    "APIContentGuard",
-    "APIGuard",
-    "APIPromptGuard",
-]
+__all__ = ["APIGuard"]
