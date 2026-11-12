@@ -4,7 +4,7 @@ from .errors import MezzoGuardServerError, UnsafeInputError
 from .guard import Guard, GuardConfig, Policy, PolicyResult, Result
 from .remote import APIGuard
 
-__version__ = "0.3.0a1"
+__version__ = "0.1.0"
 
 __all__ = [
     "Span",
