@@ -58,7 +58,10 @@
   `AutoModelForSequenceClassification` itself and sets `model.forward = torch.compile(..., mode=..., dynamic=True)`,
   so it does not get that fallback.
 - ONNX (`use_onnx=True`, requires the `onnx` extra): exports/reuses `ORTModelForSequenceClassification` artifacts under
-  `~/.cache/mezzoguard/onnx/<model-name>` (`_resolve_onnx_dir`), loading with `export=False` afterwards. `dtype` is
+  `~/.cache/mezzoguard/onnx/<model-name>` (`_resolve_onnx_dir`; local model dirs use
+  `onnx/local/<basename>-<path-hash>`), loading with `export=False` afterwards. `_onnx_export_complete` checks for an
+  `.onnx` file rather than mere directory existence, and `_export_onnx` writes to a temporary sibling then renames it
+  into place, so an interrupted export is redone while a finished one is never re-exported. `dtype` is
   never passed to the ORT model's `from_pretrained`, and `transformers.pipeline()` drops `dtype` for pre-instantiated
   models, so `dtype="int8"` (as in `tests/onnx_benchmark.py`) is a silent no-op — implementing real int8 means calling
   `optimum.ORTQuantizer` during export, not passing `dtype`.
@@ -66,7 +69,8 @@
   `torch`/`transformers` lazily so importing `mezzoguard` works without them.
 - `device` (`None` default = current behavior, `"auto"` = CUDA when available) is passed to `transformers.pipeline`
   on the torch paths and mapped to an ONNX execution provider (`CPUExecutionProvider`/`CUDAExecutionProvider`) on
-  the ONNX path; ONNX only supports `cpu`/`cuda`.
+  the ONNX path; ONNX only supports `cpu`/`cuda`. The ONNX pipeline gets `device=model.device` so transformers does not
+  auto-select CUDA when the installed ONNX Runtime has no CUDA provider.
 
 ### Scan / redact internals
 - `_chunk_text` uses the pipeline tokenizer's `offset_mapping` to return character `(start, end)` spans that cover the

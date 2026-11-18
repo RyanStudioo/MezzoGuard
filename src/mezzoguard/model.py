@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import os
+import re
+import shutil
+import tempfile
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -121,15 +125,13 @@ class Model(ABC):
                     ort_kwargs["provider"] = provider
                 if provider_options:
                     ort_kwargs["provider_options"] = provider_options
-                if os.path.isdir(export_dir):
-                    tokenizer = AutoTokenizer.from_pretrained(export_dir)
-                    model = ORTModelForSequenceClassification.from_pretrained(export_dir, export=False, **ort_kwargs)
-                else:
-                    tokenizer = AutoTokenizer.from_pretrained(self.name)
-                    model = ORTModelForSequenceClassification.from_pretrained(self.name, export=True, **ort_kwargs)
-                    tokenizer.save_pretrained(export_dir)
-                    model.save_pretrained(export_dir)
-                self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, dtype=self.dtype)
+                if not self._onnx_export_complete(export_dir):
+                    self._export_onnx(export_dir, ort_kwargs)
+                tokenizer = AutoTokenizer.from_pretrained(export_dir)
+                model = ORTModelForSequenceClassification.from_pretrained(export_dir, export=False, **ort_kwargs)
+                # Keep the pipeline on the provider selected above instead of letting it
+                # auto-detect CUDA (which fails when onnxruntime is CPU-only).
+                self.pipeline = pipeline(self.task, model=model, tokenizer=tokenizer, device=model.device)
             elif self.torch_compile:
                 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
@@ -178,10 +180,65 @@ class Model(ABC):
 
             model.forward = _forward
 
+    @staticmethod
+    def _sanitize_path_component(value: str) -> str:
+        """Make a single path component safe to use on any filesystem."""
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip(".-")
+        return safe or "model"
+
     def _resolve_onnx_dir(self) -> str:
-        """Directory where exported ONNX artifacts are cached for this model."""
-        safe_name = self.name.replace("/", os.sep)
-        return os.path.join(os.path.expanduser("~"), ".cache", "mezzoguard", "onnx", safe_name)
+        """Directory where exported ONNX artifacts are cached for this model.
+
+        Local model directories are hashed so their absolute path never leaks
+        into the cache path (and the model directory itself is never written to).
+        """
+        cache_root = os.path.join(os.path.expanduser("~"), ".cache", "mezzoguard", "onnx")
+        if os.path.isdir(self.name):
+            model_path = os.path.realpath(os.path.abspath(self.name))
+            digest = hashlib.sha256(model_path.encode("utf-8")).hexdigest()[:12]
+            basename = os.path.basename(model_path.rstrip(os.sep)) or "model"
+            return os.path.join(cache_root, "local", f"{self._sanitize_path_component(basename)}-{digest}")
+
+        parts = [self._sanitize_path_component(part) for part in self.name.split("/") if part]
+        return os.path.join(cache_root, *parts) if parts else os.path.join(cache_root, "model")
+
+    @staticmethod
+    def _onnx_export_complete(export_dir: str) -> bool:
+        """Whether ``export_dir`` already contains a usable exported ONNX model."""
+        if not os.path.isdir(export_dir):
+            return False
+        return any(name.endswith(".onnx") for name in os.listdir(export_dir))
+
+    def _export_onnx(self, export_dir: str, ort_kwargs: dict[str, Any]) -> None:
+        """Export the model to ONNX, then atomically publish it in ``export_dir``.
+
+        Exporting into a temporary sibling directory prevents an interrupted
+        export from leaving a half-written cache that looks reusable.
+        """
+        from optimum.onnxruntime import ORTModelForSequenceClassification
+        from transformers import AutoTokenizer
+
+        parent = os.path.dirname(export_dir)
+        os.makedirs(parent, exist_ok=True)
+        temp_dir = tempfile.mkdtemp(prefix=f".{os.path.basename(export_dir)}-", suffix=".tmp", dir=parent)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(self.name)
+            model = ORTModelForSequenceClassification.from_pretrained(self.name, export=True, **ort_kwargs)
+            tokenizer.save_pretrained(temp_dir)
+            model.save_pretrained(temp_dir)
+
+            if os.path.isdir(export_dir):
+                if self._onnx_export_complete(export_dir):
+                    # Another process finished exporting first; reuse its artifacts.
+                    return
+                shutil.rmtree(export_dir)
+            try:
+                os.replace(temp_dir, export_dir)
+            except OSError:
+                if not self._onnx_export_complete(export_dir):
+                    raise
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _predict(self, inputs: list[str], **kwargs: Any) -> list:
         """Run the pipeline on ``inputs`` with an LRU cache keyed by input text.
