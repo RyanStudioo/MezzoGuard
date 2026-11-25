@@ -1,0 +1,58 @@
+# Jekyll configuration for the Mezzo Guard project site.
+# GitHub Pages builds this from the /docs directory of the repository
+# (Settings -> Pages -> Build and deployment -> Branch -> /docs).
+
+title: Mezzo Guard
+description: >-
+  A Python SDK for AI-based prompt protection and content moderation.
+  Scan, filter, and redact harmful content with little effort.
+
+# The site is published at:
+#   https://ryanstudioo.github.io/MezzoGuard/
+# If the repository is renamed, update baseurl to the new name.
+# If this were a user/organization repo (<owner>.github.io), baseurl must be "".
+url: "https://ryanstudioo.github.io"
+baseurl: "/MezzoGuard"
+
+# Lets GitHub Pages edit/footer helpers link back to the source.
+repository: RyanStudioo/MezzoGuard
+
+# minima is bundled with GitHub Pages, so no extra theme gem is needed.
+theme: minima
+
+# Pages listed in the top navigation bar.
+header_pages:
+  - quickstart.md
+  - scanning.md
+  - policies.md
+  - redaction.md
+  - text-cleaner.md
+  - server.md
+  - api/index.md
+  - about.md
+
+author:
+  name: Ryan Studio
+  email: ryanstudiobusiness@gmail.com
+
+github_username: RyanStudioo
+
+# GitHub-Flavored Markdown (fenced code blocks, tables, task lists, ...).
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+
+# Clean URLs: /about/ instead of /about.html.
+permalink: pretty
+
+# Files that must not be copied into the generated _site.
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - node_modules
+  - .sass-cache
+
+# GitHub Pages injects its own approved plugin set; keep this empty.
+plugins: []

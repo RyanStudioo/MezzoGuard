@@ -296,3 +296,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Jekyll (GitHub Pages site in docs/)
+docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata
+docs/vendor/

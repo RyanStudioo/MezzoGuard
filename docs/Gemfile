@@ -1,0 +1,11 @@
+# Local development only — GitHub Pages does not read this file.
+# It pins the same Jekyll version, plugins, and theme that GitHub Pages uses
+# in production, so what you preview locally is what gets published.
+#
+#   bundle install
+#   bundle exec jekyll serve
+#   open http://127.0.0.1:4000/MezzoGuard/
+
+source "https://rubygems.org"
+
+gem "github-pages", group: :jekyll_plugins
