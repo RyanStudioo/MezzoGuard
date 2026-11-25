@@ -119,6 +119,49 @@ guard.redact(text, replace={"violence": "[VIOLENCE]", "sexual": "[SEXUAL]"})
 # categories without an explicit replacement fall back to "[REDACTED]"
 ```
 
+## Text cleaning
+
+`mezzoguard.cleaner` normalizes text and masks platform-specific references before
+it reaches a model. Normalization, link/email masking, and emoji handling are
+shared; each platform only adds its own mention rules.
+
+```python
+from mezzoguard import AutoCleaner, DiscordCleaner, RedditCleaner, TwitterCleaner
+
+AutoCleaner().clean("<@123> u/alice r/python @bob @everyone")
+# '@ping @ping #chat @ping @mass'
+
+DiscordCleaner().clean("<@123> <#456> @everyone")
+# '@ping #chat @mass'
+
+RedditCleaner().clean("see /u/alice and r/python")
+# 'see @ping and #chat'
+
+TwitterCleaner().clean("hi @alice https://x.com/@bob")
+# 'hi @ping [LINK]'
+```
+
+`AutoCleaner` applies every platform rule block in one pass, ordered by
+specificity: Discord angle markup and mass pings first, then Reddit references,
+then Twitter/X handles. It does not need platform detection, and Discord
+protected constructs are consumed before the other rules can see inside them.
+
+The pipeline always runs NFKC normalization, invisible-character removal,
+whitespace collapse, a single masking pass, then a final whitespace collapse and
+trim. Only five synthetic tokens are emitted: `[LINK]`, `@ping`, `@mass`,
+`#chat`, and `:emoji:`. Real Unicode emoji (including ZWJ sequences, modifiers,
+keycaps, and flags) are preserved. Synthetic tokens are treated as opaque, so
+cleaning the output again is a no-op.
+
+Email addresses always collapse to the same `[LINK]` token as URLs. The rule set
+is standardized and cleaners take no configuration: Discord bare `@name` /
+`#channel` text is deliberately left alone, and emoji shortcodes always use the
+bundled table (known shortcodes are preserved, unknown ones become `:emoji:`).
+
+Input is capped at 4,000 code points before masking. `clean_text(text, platform)`
+and `clean_auto`/`clean_discord`/`clean_reddit`/`clean_twitter` are convenience
+wrappers.
+
 ## Guarding function calls
 
 Wrap any function so its input is scanned (raising on unsafe input) or redacted before execution.

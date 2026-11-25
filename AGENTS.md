@@ -102,6 +102,20 @@
 - A repo README's YAML frontmatter `new_version` marks the model deprecated and emits a `DeprecationWarning`
   (`ModelConfig._parse_readme`); `from_model_name` and `get_deprecation_from_readme` are `lru_cache`d.
 
+### Text cleaner
+- `cleaner/` is independent of models and guards. `cleaner/base.py` holds `TextCleaner`: NFKC -> invisible-character
+  removal -> whitespace collapse -> one combined-alternation masking pass -> final trim. The alternation is cached by
+  rule layout in `_compile_alternation` and every alternative is a named group; replacement lookup uses
+  `Match.lastgroup`. Only `[LINK]`, `@ping`, `@mass`, `#chat`, and `:emoji:` are synthetic output tokens.
+- `cleaner/platforms.py` adds the ordered Discord/Reddit/Twitter rule blocks (`DiscordCleaner`, `RedditCleaner`,
+  `TwitterCleaner`), `AutoCleaner` (all platform blocks in one pass, sorted Discord -> Reddit -> Twitter), and
+  convenience functions. Cleaners take no configuration options: emails always become `[LINK]`, the shortcode rule
+  always uses the bundled table, and Discord bare `@name`/`#channel` text is left alone. Link/email rules always precede
+  platform mention rules; the literal shortcode rule is last. `cleaner/shortcodes.py` is generated from GitHub gemoji
+  aliases; known shortcodes are preserved, unknown ones become `:emoji:`.
+- Input is capped at `MAX_TEXT_LENGTH` (4,000) before masking. Normalization/link masking are platform-independent;
+  only the platform block differs.
+
 ## Tests
 - Use the `prompt_guard` / `content_guard` fixtures from `tests/conftest.py` (both are the same unified `Guard`, just
   with different fake pipelines); they monkeypatch `ModelConfig` and `Model.load_model` with `FakePipeline`.
