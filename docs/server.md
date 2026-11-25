@@ -111,7 +111,7 @@ Scan a batch of texts. Request fields:
 | `policy` | object | `null` | `{category: threshold}` overrides. |
 | `default_threshold` | float | `null` | Fallback for categories missing from `policy`; falls back to `confidence`. |
 | `max_seq_length` | int | `64` | Chunk size in tokens. |
-| `overlap` | int | `16` | Chunk overlap in tokens. |
+| `overlap` | int | `16` | Chunk overlap in tokens; must be smaller than `max_seq_length`. |
 | `include_chunks` | bool | `false` | Also return raw per-chunk predictions. |
 
 ```bash
@@ -167,7 +167,7 @@ Redact a batch of texts. Request fields:
 | `replace` | string | `"[REDACTED]"` | Replacement marker. |
 | `replacements` | object | `null` | Per-category `{category: replacement}` — wins over `replace`. |
 | `max_seq_length` | int | `64` | Chunk size in tokens. |
-| `overlap` | int | `16` | Chunk overlap in tokens. |
+| `overlap` | int | `16` | Chunk overlap in tokens; must be smaller than `max_seq_length`. |
 | `return_spans` | bool | `false` | Also return the positions of every replaced region. |
 
 ```bash
@@ -209,7 +209,7 @@ The server validates before doing any work:
 |-----------|----------|
 | More texts than `--max-batch-texts` | `413` with a message naming the limit. |
 | A text longer than `--max-text-chars` | `413` with a message naming the limit. |
-| Malformed request (e.g. empty `texts` list, `confidence` out of 0–1) | `422` with pydantic validation details. |
+| Malformed request (e.g. empty `texts` list, `confidence` out of 0–1, `overlap` not strictly below `max_seq_length`) | `422` with pydantic validation details. |
 
 Set both limits from the CLI (`--max-batch-texts`, `--max-text-chars`) or via
 `create_app` when embedding.

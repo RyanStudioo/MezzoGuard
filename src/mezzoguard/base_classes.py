@@ -46,8 +46,11 @@ class ModelConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> ModelConfig:
+        categories = data.get("categories")
+        if not isinstance(categories, list):
+            raise ValueError("model config must contain a 'categories' list")
         return cls(
-            categories=data["categories"],
+            categories=categories,
             default_max_seq_length=data.get("default_max_seq_length", DEFAULT_MAX_SEQ_LENGTH),
             default_overlap=data.get("default_overlap", DEFAULT_OVERLAP),
             default_replace=data.get("default_replace", DEFAULT_REDACTED_LABEL),
@@ -63,7 +66,11 @@ class ModelConfig:
         except (json.JSONDecodeError, OSError) as e:
             warnings.warn(f"Failed to read config file {path}: {e}", stacklevel=2)
             return None
-        return cls.from_dict(data)
+        try:
+            return cls.from_dict(data)
+        except ValueError as e:
+            warnings.warn(f"Invalid config file {path}: {e}", stacklevel=2)
+            return None
 
     @classmethod
     def _parse_readme(cls, content: str) -> dict | None:
@@ -367,13 +374,12 @@ def _warn_if_deprecated(model_config: ModelConfig | None, name: str) -> None:
 
 def _make_redact_before_exec(redact_method, async_redact_method):
     """Shared decorator factory for redact_before_exec."""
-    import asyncio
     import functools
     import inspect
 
     def decorator(param, max_seq_length, overlap, replace, policy, confidence):
         def outer_decorator(func):
-            if asyncio.iscoroutinefunction(func):
+            if inspect.iscoroutinefunction(func):
 
                 @functools.wraps(func)
                 async def async_wrapper(*args, **kwargs):
@@ -426,13 +432,12 @@ def _make_scan_before_exec(scan_method, async_scan_method, on_unsafe):
 
     on_unsafe: callable(result, confidence) that raises if unsafe.
     """
-    import asyncio
     import functools
     import inspect
 
     def decorator(param, max_seq_length, overlap, confidence):
         def outer_decorator(func):
-            if asyncio.iscoroutinefunction(func):
+            if inspect.iscoroutinefunction(func):
 
                 @functools.wraps(func)
                 async def async_wrapper(*args, **kwargs):

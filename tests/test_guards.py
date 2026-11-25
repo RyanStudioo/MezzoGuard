@@ -251,6 +251,36 @@ def test_model_config_ignores_legacy_model_type():
     }
 
 
+def test_model_config_missing_categories_raises_clear_error():
+    with pytest.raises(ValueError, match="categories"):
+        ModelConfig.from_dict({"default_max_seq_length": 32})
+
+
+def test_invalid_mezzoguard_file_warns_and_falls_back(tmp_path, monkeypatch):
+    from conftest import FakeTokenizer
+
+    class FakePipeline:
+        tokenizer = FakeTokenizer()
+
+        def __call__(self, texts, top_k=None):
+            return [[{"label": "toxic", "score": 0.9}] for _ in texts]
+
+    model_dir = tmp_path / "invalid-config-model"
+    model_dir.mkdir()
+    (model_dir / ".mezzoguard").write_text('{"default_max_seq_length": 32}', encoding="utf-8")
+
+    monkeypatch.setattr(ModelConfig, "get_deprecation_from_readme", classmethod(lambda cls, name: None))
+    monkeypatch.setattr(
+        "mezzoguard.model.Model.load_model",
+        lambda self: setattr(self, "pipeline", FakePipeline()),
+    )
+
+    with pytest.warns(UserWarning, match="Invalid config file"):
+        guard = Guard(str(model_dir))
+    assert guard.config is None
+    assert guard.scan("anything").scores == {}
+
+
 def test_guard_implements_guard_base(prompt_guard):
     import inspect
 

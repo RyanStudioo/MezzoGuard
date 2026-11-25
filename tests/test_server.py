@@ -126,3 +126,34 @@ def test_empty_batch_rejected(prompt_guard):
     with make_client(prompt_guard) as client:
         response = client.post("/v1/scan", json={"texts": []})
     assert response.status_code == 422
+
+
+def test_scan_overlap_above_max_seq_rejected(prompt_guard):
+    with make_client(prompt_guard) as client:
+        response = client.post("/v1/scan", json={"texts": ["hello"], "max_seq_length": 2, "overlap": 5})
+    assert response.status_code == 422
+    assert "must be less than max_seq_length" in response.text
+
+
+def test_scan_overlap_equal_to_max_seq_rejected(prompt_guard):
+    with make_client(prompt_guard) as client:
+        response = client.post("/v1/scan", json={"texts": ["hello"], "max_seq_length": 4, "overlap": 4})
+    assert response.status_code == 422
+
+
+def test_scan_overlap_above_default_max_seq_rejected(prompt_guard):
+    with make_client(prompt_guard) as client:
+        response = client.post("/v1/scan", json={"texts": ["hello"], "overlap": 64})
+    assert response.status_code == 422
+
+
+def test_redact_overlap_above_max_seq_rejected(content_guard):
+    with make_client(content_guard) as client:
+        response = client.post("/v1/redact", json={"texts": ["hello"], "max_seq_length": 2, "overlap": 5})
+    assert response.status_code == 422
+
+
+def test_scan_valid_overlap_still_accepted(prompt_guard):
+    with make_client(prompt_guard) as client:
+        response = client.post("/v1/scan", json={"texts": ["hello"], "max_seq_length": 8, "overlap": 4})
+    assert response.status_code == 200

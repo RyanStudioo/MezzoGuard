@@ -115,6 +115,11 @@ Only `categories` is required. The other keys are part of the schema;
 the SDK methods use their own defaults (64 / 16 / `[REDACTED]`) unless you
 pass values explicitly at call time.
 
+A `.mezzoguard` file that is unreadable, not valid JSON, or missing its
+`categories` list is ignored with a warning, and the resolution continues as
+if the file did not exist (built-in preset next, then the empty-config
+fallback of step 4).
+
 ### 3. Both
 
 An explicit `config` always wins over a preset or a `.mezzoguard` file.
