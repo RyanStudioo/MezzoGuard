@@ -8,21 +8,53 @@
 
 /**
  * Previous/next page navigation (see _includes/page-nav.html).
- * Reuses minima's variables, which are in scope after the @import.
+ * Two clickable cards below the page content: a small uppercase label with
+ * an arrow, then the destination page's title. Reuses minima's variables
+ * and mixins, which are in scope after the @import.
  */
 .page-nav {
   display: flex;
   justify-content: space-between;
-  border-top: 1px solid $grey-color-light;
-  margin-top: $spacing-unit;
-  padding-top: $spacing-unit / 2;
+  gap: $spacing-unit / 2;
+  margin-top: $spacing-unit * 1.5;
 }
 
 .page-nav-item {
   display: flex;
   flex-direction: column;
-  gap: $spacing-unit / 4;
-  max-width: 45%;
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1px solid $grey-color-light;
+  border-radius: 6px;
+  padding: $spacing-unit / 1.5;
+  color: $text-color;
+  text-decoration: none;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+
+  &:hover,
+  &:focus {
+    border-color: $brand-color;
+    background-color: rgba($brand-color, 0.04);
+    box-shadow: 0 4px 12px rgba($grey-color-dark, 0.15);
+    text-decoration: none;
+    transform: translateY(-2px);
+
+    .page-nav-title {
+      color: $brand-color;
+    }
+  }
+}
+
+// Invisible counterpart of a lone first/last card: occupies its half of the
+// row (flex: 1 1 0 from .page-nav-item) without drawing anything, so the
+// single visible card stays on its own side.
+.page-nav-placeholder {
+  border: none;
+  padding: 0;
 }
 
 .page-nav-next {
@@ -31,10 +63,42 @@
 }
 
 .page-nav-label {
+  margin-bottom: $spacing-unit / 6;
   color: $grey-color;
   font-size: $small-font-size;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.page-nav-arrow {
+  display: inline-block;
+  transition: transform 150ms ease;
+}
+
+.page-nav-prev:hover .page-nav-arrow,
+.page-nav-prev:focus .page-nav-arrow {
+  transform: translateX(-3px);
+}
+
+.page-nav-next:hover .page-nav-arrow,
+.page-nav-next:focus .page-nav-arrow {
+  transform: translateX(3px);
 }
 
 .page-nav-title {
   font-weight: 600;
+  color: $text-color;
+  overflow-wrap: break-word;
+}
+
+// Phones: stack the cards, both aligned left.
+@include media-query($on-palm) {
+  .page-nav {
+    flex-direction: column;
+  }
+
+  .page-nav-next {
+    align-items: flex-start;
+    text-align: left;
+  }
 }

@@ -2,8 +2,8 @@
   Previous/next page navigation.
 
   The reading order comes from `docs_order` in _config.yml, which lists the
-  pages' pretty URLs (for example "/installation/"). Pages that are not in
-  that list (the home page, about, 404) render nothing.
+  pages' pretty URLs (for example "/installation/") and starts at "/" — the
+  home page. Pages that are not in that list (about, 404) render nothing.
 {% endcomment %}
 {% assign nav_index = -1 %}
 {% for nav_item in site.docs_order %}
@@ -33,11 +33,22 @@
     {% endif %}
   {% endfor %}
 
+  {% comment %}
+    index.md carries no title front matter on purpose (minima's home layout
+    would render an extra heading if it did), so label the home page "Home".
+  {% endcomment %}
+  {% if nav_prev_url == "/" %}
+    {% assign nav_prev_title = "Home" %}
+  {% endif %}
+  {% if nav_next_url == "/" %}
+    {% assign nav_next_title = "Home" %}
+  {% endif %}
+
   {% if nav_prev_url or nav_next_url %}
 <nav class="page-nav">
     {% if nav_prev_url %}
-  <a class="page-nav-item" href="{{ nav_prev_url | relative_url }}">
-    <span class="page-nav-label">&larr; Previous</span>
+  <a class="page-nav-item page-nav-prev" href="{{ nav_prev_url | relative_url }}">
+    <span class="page-nav-label"><span class="page-nav-arrow" aria-hidden="true">&larr;</span> Previous</span>
     <span class="page-nav-title">{{ nav_prev_title | escape }}</span>
   </a>
     {% else %}
@@ -45,7 +56,7 @@
     {% endif %}
     {% if nav_next_url %}
   <a class="page-nav-item page-nav-next" href="{{ nav_next_url | relative_url }}">
-    <span class="page-nav-label">Next &rarr;</span>
+    <span class="page-nav-label">Next <span class="page-nav-arrow" aria-hidden="true">&rarr;</span></span>
     <span class="page-nav-title">{{ nav_next_title | escape }}</span>
   </a>
     {% else %}

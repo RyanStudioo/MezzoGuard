@@ -32,11 +32,13 @@ header_pages:
   - about.md
 
 # Linear reading order for the previous/next links rendered at the bottom of
-# every content page (_layouts/page.html -> _includes/page-nav.html).
-# Entries are the pretty URLs Jekyll assigns (permalink: pretty), not file
-# names. Pages that are not listed here (the home page, about, 404) show no
-# previous/next links. A new guide page should be added here too.
+# every content page (_layouts/page.html and _layouts/home.html both include
+# _includes/page-nav.html). Entries are the pretty URLs Jekyll assigns
+# (permalink: pretty), not file names. The home page ("/") starts the chain;
+# pages that are not listed here (about, 404) show no previous/next links.
+# A new guide page should be added here too.
 docs_order:
+  - /
   - /installation/
   - /quickstart/
   - /scanning/

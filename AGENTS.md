@@ -121,10 +121,11 @@
   the documentation directory, the nav comes from `header_pages` in `docs/_config.yml`, and Pages builds it on push —
   Ruby is only needed for a local preview (see the comment atop `docs/Gemfile`).
 - Prev/next page buttons: `docs_order` in `docs/_config.yml` is the linear reading order (pretty URLs like
-  `/installation/`, guides first then `api/*`); `_includes/page-nav.html` renders the links with plain Liquid (no
-  plugins) from that list, `_layouts/page.html` is a local copy of minima 2.5.1's page layout that includes it
-  (re-diff against the theme if GitHub Pages bumps minima), and `assets/main.scss` imports minima and appends the
-  `.page-nav` styles. Pages not in `docs_order` (home, `about.md`, 404) get no buttons.
+  `/installation/`; it starts at `/` — the home page, which the include labels "Home" because `index.md` carries no
+  title — then the guides, then `api/*`); `_includes/page-nav.html` renders the links with plain Liquid (no
+  plugins) from that list; `_layouts/page.html` and `_layouts/home.html` are local copies of minima 2.5.1's
+  layouts that include it (re-diff against the theme if GitHub Pages bumps minima), and `assets/main.scss`
+  imports minima and appends the `.page-nav` styles. Pages not in `docs_order` (`about.md`, 404) get no buttons.
 - One guide page per feature (`installation.md`, `quickstart.md`, `scanning.md`, `policies.md`, `redaction.md`,
   `function-guards.md`, `text-cleaner.md`, `performance.md`, `server.md` = CLI + full REST reference,
   `remote-client.md`, `models.md`) plus exact-signature pages under `docs/api/` (`index.md`, `guard.md`,
