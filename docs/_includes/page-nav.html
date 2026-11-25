@@ -1,0 +1,56 @@
+{% comment %}
+  Previous/next page navigation.
+
+  The reading order comes from `docs_order` in _config.yml, which lists the
+  pages' pretty URLs (for example "/installation/"). Pages that are not in
+  that list (the home page, about, 404) render nothing.
+{% endcomment %}
+{% assign nav_index = -1 %}
+{% for nav_item in site.docs_order %}
+  {% if nav_item == page.url %}
+    {% assign nav_index = forloop.index0 %}
+  {% endif %}
+{% endfor %}
+
+{% if nav_index >= 0 %}
+  {% assign nav_prev_index = nav_index | minus: 1 %}
+  {% assign nav_next_index = nav_index | plus: 1 %}
+  {% for nav_item in site.docs_order %}
+    {% if forloop.index0 == nav_prev_index %}
+      {% assign nav_prev_url = nav_item %}
+    {% endif %}
+    {% if forloop.index0 == nav_next_index %}
+      {% assign nav_next_url = nav_item %}
+    {% endif %}
+  {% endfor %}
+
+  {% for nav_page in site.pages %}
+    {% if nav_page.url == nav_prev_url %}
+      {% assign nav_prev_title = nav_page.title %}
+    {% endif %}
+    {% if nav_page.url == nav_next_url %}
+      {% assign nav_next_title = nav_page.title %}
+    {% endif %}
+  {% endfor %}
+
+  {% if nav_prev_url or nav_next_url %}
+<nav class="page-nav">
+    {% if nav_prev_url %}
+  <a class="page-nav-item" href="{{ nav_prev_url | relative_url }}">
+    <span class="page-nav-label">&larr; Previous</span>
+    <span class="page-nav-title">{{ nav_prev_title | escape }}</span>
+  </a>
+    {% else %}
+  <span class="page-nav-item page-nav-placeholder"></span>
+    {% endif %}
+    {% if nav_next_url %}
+  <a class="page-nav-item page-nav-next" href="{{ nav_next_url | relative_url }}">
+    <span class="page-nav-label">Next &rarr;</span>
+    <span class="page-nav-title">{{ nav_next_title | escape }}</span>
+  </a>
+    {% else %}
+  <span class="page-nav-item page-nav-placeholder"></span>
+    {% endif %}
+</nav>
+  {% endif %}
+{% endif %}

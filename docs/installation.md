@@ -30,6 +30,42 @@ that matches your platform (CUDA, CPU, ROCm, and so on):
 pip install torch
 ```
 
+On Linux this default wheel already bundles CUDA support. On Windows it is
+CPU-only, and on any platform you may want to pin a specific CUDA version —
+that is what the dedicated wheel indexes below are for.
+
+### Installing PyTorch with CUDA
+
+PyTorch publishes one wheel index per CUDA version. Pick the one that matches
+your NVIDIA driver on
+[pytorch.org](https://pytorch.org/get-started/locally/) — at the time of
+writing the selector offers CUDA 11.8, 12.6, and 12.8:
+
+```bash
+# CUDA 12.8
+pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+# CUDA 12.6
+pip install torch --index-url https://download.pytorch.org/whl/cu126
+
+# CUDA 11.8 (older drivers)
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+```
+
+You only need an NVIDIA driver — the wheels bundle the CUDA runtime, so the
+full CUDA toolkit does not have to be installed.
+
+Verify that PyTorch can see your GPU:
+
+```bash
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+When that prints `True`, Mezzo Guard will run on the GPU as soon as you pass
+`device="cuda"` (or `device="auto"`), and `dtype="auto"` selects the best
+float precision your card supports. The full device and precision reference
+lives in [Performance]({{ '/performance/' | relative_url }}).
+
 PyTorch is only needed when you load a model. Importing `mezzoguard` works
 without it, and if you try to load a model without PyTorch installed you get a
 `RuntimeError` with exactly this hint:

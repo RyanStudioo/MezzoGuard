@@ -116,6 +116,36 @@
 - Input is capped at `MAX_TEXT_LENGTH` (4,000) before masking. Normalization/link masking are platform-independent;
   only the platform block differs.
 
+## Docs
+- `docs/` is the GitHub Pages site (Jekyll + minima, `permalink: pretty`, baseurl `/MezzoGuard`): `index.md` doubles as
+  the documentation directory, the nav comes from `header_pages` in `docs/_config.yml`, and Pages builds it on push —
+  Ruby is only needed for a local preview (see the comment atop `docs/Gemfile`).
+- Prev/next page buttons: `docs_order` in `docs/_config.yml` is the linear reading order (pretty URLs like
+  `/installation/`, guides first then `api/*`); `_includes/page-nav.html` renders the links with plain Liquid (no
+  plugins) from that list, `_layouts/page.html` is a local copy of minima 2.5.1's page layout that includes it
+  (re-diff against the theme if GitHub Pages bumps minima), and `assets/main.scss` imports minima and appends the
+  `.page-nav` styles. Pages not in `docs_order` (home, `about.md`, 404) get no buttons.
+- One guide page per feature (`installation.md`, `quickstart.md`, `scanning.md`, `policies.md`, `redaction.md`,
+  `function-guards.md`, `text-cleaner.md`, `performance.md`, `server.md` = CLI + full REST reference,
+  `remote-client.md`, `models.md`) plus exact-signature pages under `docs/api/` (`index.md`, `guard.md`,
+  `policy-result.md`, `cleaner.md`, `apiguard.md`, `errors.md`).
+- **When a feature or the public API changes, find the affected docs and update them in the same change** —
+  signatures, defaults, request/response schemas, and example outputs in the feature's guide page AND its
+  `docs/api/` page. Rough map: `guard/guard.py` + `base_classes.py` -> `scanning.md`/`redaction.md`/
+  `function-guards.md` + `api/guard.md`; `guard/policy.py` + `result.py` -> `policies.md` + `api/policy-result.md`;
+  `guard/config.py` model list -> `models.md`; `model.py` backends + `config.py` cache -> `performance.md`;
+  `cli.py` + `server/` -> `server.md`; `remote.py` -> `remote-client.md` + `api/apiguard.md`; `cleaner/` ->
+  `text-cleaner.md` + `api/cleaner.md`; `errors.py` -> `api/errors.md`. A new feature gets a new page, linked from
+  `index.md` (and `header_pages` if primary), and added to `docs_order` so the prev/next chain stays complete.
+- Docs constraints: every page needs `layout: page` + `title` front matter (`index.md` uses `layout: home`); internal
+  links must use the `{{ '/scanning/' | relative_url }}` Liquid pattern (baseurl-safe), never raw relative paths;
+  never write `{{` or `{%` anywhere else in content — Liquid processes them even inside fenced code blocks; tables
+  are GFM/kramdown. After edits, verify every `relative_url` target resolves to a real `.md` file.
+- Keep documented constants in sync with `src/mezzoguard/_types.py` / `config.py` (`max_seq_length=64`,
+  `overlap=16`, `confidence=0.5`, `[REDACTED]`, `MAX_TEXT_LENGTH=4000`, `cache_maxsize=1024` — summarized in
+  `docs/api/index.md`), and keep example outputs consistent with the `FakePipeline` marker words described under
+  Tests.
+
 ## Tests
 - Use the `prompt_guard` / `content_guard` fixtures from `tests/conftest.py` (both are the same unified `Guard`, just
   with different fake pipelines); they monkeypatch `ModelConfig` and `Model.load_model` with `FakePipeline`.

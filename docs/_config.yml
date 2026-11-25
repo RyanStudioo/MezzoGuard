@@ -31,6 +31,30 @@ header_pages:
   - api/index.md
   - about.md
 
+# Linear reading order for the previous/next links rendered at the bottom of
+# every content page (_layouts/page.html -> _includes/page-nav.html).
+# Entries are the pretty URLs Jekyll assigns (permalink: pretty), not file
+# names. Pages that are not listed here (the home page, about, 404) show no
+# previous/next links. A new guide page should be added here too.
+docs_order:
+  - /installation/
+  - /quickstart/
+  - /scanning/
+  - /policies/
+  - /redaction/
+  - /function-guards/
+  - /text-cleaner/
+  - /performance/
+  - /server/
+  - /remote-client/
+  - /models/
+  - /api/
+  - /api/guard/
+  - /api/policy-result/
+  - /api/cleaner/
+  - /api/apiguard/
+  - /api/errors/
+
 author:
   name: Ryan Studio
   email: ryanstudiobusiness@gmail.com

@@ -1,0 +1,20 @@
+---
+layout: default
+---
+<!-- Local override of the minima 2.5.1 page layout (the version GitHub Pages
+     ships). Identical to the theme's file except for the page-nav include
+     below. If GitHub Pages ever moves to a newer minima, re-diff this copy
+     against the theme and update it. -->
+<article class="post">
+
+  <header class="post-header">
+    <h1 class="post-title">{{ page.title | escape }}</h1>
+  </header>
+
+  <div class="post-content">
+    {{ content }}
+  </div>
+
+  {% include page-nav.html %}
+
+</article>

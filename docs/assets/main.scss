@@ -1,0 +1,40 @@
+---
+# Only the main Sass file needs front matter (the dashes are enough).
+# This file overrides minima's own assets/main.scss (same path in the theme
+# gem), so import the theme first and append site-specific rules below.
+---
+
+@import "minima";
+
+/**
+ * Previous/next page navigation (see _includes/page-nav.html).
+ * Reuses minima's variables, which are in scope after the @import.
+ */
+.page-nav {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid $grey-color-light;
+  margin-top: $spacing-unit;
+  padding-top: $spacing-unit / 2;
+}
+
+.page-nav-item {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-unit / 4;
+  max-width: 45%;
+}
+
+.page-nav-next {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.page-nav-label {
+  color: $grey-color;
+  font-size: $small-font-size;
+}
+
+.page-nav-title {
+  font-weight: 600;
+}
